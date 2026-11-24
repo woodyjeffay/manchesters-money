@@ -9,57 +9,47 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <aside id="sidebar">
-    <div class="brand">
+    <div class="top">
       <h1 class="logo"><span class="mark" aria-hidden="true">£</span><span>Manchester’s <b>Money</b></span></h1>
-      <p id="tagline">Who ultimately owns and controls property in Manchester, from public registers.</p>
+      <button id="sheet" class="sheet-btn" type="button" aria-expanded="false" aria-controls="sidebar">Filters</button>
     </div>
+    <p id="tagline">Property in Manchester controlled from outside the UK.</p>
 
-    <label class="search"><span class="sr">Search</span>
-      <input id="q" type="search" placeholder="Search a place, street, postcode or owner" autocomplete="off"></label>
+    <input id="q" class="search" type="search" placeholder="Search place, postcode or owner" aria-label="Search" autocomplete="off">
 
-    <h2 class="label">What kind of place</h2>
-    <div id="kind-cards" class="cards"></div>
-    <div id="kind-bar" class="bar" aria-hidden="true"></div>
-    <p class="hint">Tap a card to show only that kind of place.</p>
-
-    <h2 class="label">Who ultimately controls it <span class="hint">(marker colour)</span></h2>
-    <div class="counter-row" id="type-counters" aria-label="Owner type"></div>
-
-    <h2 class="label">Top countries</h2>
-    <div class="counter-row" id="country-counters" aria-label="Top countries"></div>
+    <div id="kind-cards" class="cards" aria-label="Kind of place"></div>
+    <div id="type-counters" class="counter-row" aria-label="Who controls it"></div>
 
     <div class="filters">
-      <label id="area-filter" hidden>Area <select id="f-area"><option value="">All areas</option></select></label>
-      <label>Country <select id="f-country"><option value="">All countries</option></select></label>
+      <select id="f-area" aria-label="Area" hidden><option value="">All areas</option></select>
+      <select id="f-country" aria-label="Country"><option value="">All countries</option></select>
     </div>
     <span id="owner-chip" class="chip" hidden></span>
 
-    <div class="buttons">
-      <button id="top-owners" type="button">Top owners</button>
-      <button id="download" type="button">Download CSV</button>
-      <button id="reset" type="button">Reset</button>
+    <div class="list-head">
+      <span id="shown"></span>
+      <span class="actions">
+        <button id="top-owners" type="button">Top owners</button>
+        <button id="download" type="button">CSV</button>
+        <button id="reset" type="button">Reset</button>
+      </span>
     </div>
-
-    <div class="list-head"><span id="shown" class="shown"></span><span class="hint">in view</span></div>
     <ol id="place-list" class="places"></ol>
 
     <footer>
-      <nav><a href="methodology.html">Methodology</a> · <a href="#" id="suggest-general">Suggest a correction</a></nav>
+      <p><a href="methodology.html">About the data</a> · <a href="#" id="suggest-general">Suggest a correction</a></p>
       <p id="updated"></p>
-      Contains HM Land Registry data © Crown copyright and database right 2026, licensed under the
-      <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">Open Government Licence v3.0</a>.
-      Contains Companies House data, Open Government Licence. Food Standards Agency data, OGL.
-      Postcode data via postcodes.io (contains OS data © Crown copyright). Map: OpenFreeMap, OpenMapTiles, © OpenStreetMap contributors.
+      <p>Contains HM Land Registry data © Crown copyright and database right 2026, Companies House and Food Standards Agency data, all under the
+      <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">Open Government Licence v3.0</a>. Postcodes: postcodes.io, OS data © Crown copyright. Map © OpenStreetMap contributors, OpenFreeMap.</p>
     </footer>
   </aside>
 
   <main>
     <div id="map"></div>
-    <div id="legend" class="legend" aria-label="Map key"></div>
     <aside id="panel" hidden>
       <button id="close" type="button" aria-label="Close">×</button>
       <div id="panel-body"></div>
@@ -69,7 +59,7 @@
   <dialog id="correction">
     <form id="correction-form" method="dialog">
       <h2>Suggest a correction</h2>
-      <p class="j">Corrections are reviewed by hand before anything on the map changes. Please include a source if you can.</p>
+      <p class="j">We check every suggestion by hand. A source helps.</p>
       <p id="c-property" class="note" hidden></p>
       <input type="hidden" name="property_id">
       <input type="hidden" name="property_name">
@@ -77,7 +67,7 @@
         <textarea name="correction" required minlength="10" maxlength="4000" rows="5"></textarea></label>
       <label>Source (link or reference)
         <input name="source" maxlength="1000" placeholder="https://..."></label>
-      <label>Your email (optional, only used if we need to ask a question)
+      <label>Your email (optional)
         <input name="contact" type="email" maxlength="200"></label>
       <label class="hp" aria-hidden="true">Leave this empty <input name="website" tabindex="-1" autocomplete="off"></label>
       <p id="c-status" role="status"></p>
@@ -93,6 +83,6 @@
   <script src="https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

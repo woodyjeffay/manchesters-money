@@ -111,16 +111,14 @@ fetch("data/properties.geojson").then((r) => r.json()).then((gj) => {
   features = gj.features;
   const m = gj.meta || {};
   const month = (ym) => ym ? new Date(ym + "-01").toLocaleDateString("en-GB", { month: "long", year: "numeric" }) : null;
-  document.getElementById("updated").textContent = [
-    m.ocod && `Land Registry data: ${month(m.ocod)} release.`,
-    gj.generated && `Ownership chains checked ${new Date(gj.generated).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.`,
-  ].filter(Boolean).join(" ");
+  document.getElementById("updated").textContent = gj.generated
+    ? `Updated ${new Date(gj.generated).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`
+      + (m.ocod ? ` · Land Registry ${month(m.ocod)}` : "") : "";
   const areas = unique((p) => p.area || "").filter(Boolean);
   fillSelect("f-area", areas, (a) => a);
-  document.getElementById("area-filter").hidden = areas.length < 2;
+  document.getElementById("f-area").hidden = areas.length < 2;
   if (areas.length > 1) document.getElementById("tagline").textContent =
-    `Who ultimately owns and controls property in ${areas.slice(0, -1).join(", ")} and ${areas.at(-1)}, from public registers.`;
-  fillSelect("f-country", unique((p) => p.ultimate_country || "").filter(Boolean), countryName);
+    `Property in ${areas.slice(0, -1).join(", ")} and ${areas.at(-1)} controlled from outside the UK.`;
   render();
   // Open on the city centre, where the holdings are densest; the list and clusters show the rest.
   map.invalidateSize();
@@ -150,7 +148,7 @@ document.getElementById("reset").addEventListener("click", () => {
   document.getElementById("q").value = "";
   render();
 });
-function setOwner(o) { state.owner = o; render(); }
+function setOwner(o) { state.owner = o; render(); if (o) document.getElementById("panel").hidden = true; }
 
 const haystack = (p) => (p._hay ||= [p.name, p.address, p.postcode, p.registered_owner, p.ultimate_owner, p.operator,
   countryName(p.ultimate_country)].filter(Boolean).join(" ").toLowerCase());
@@ -188,7 +186,6 @@ function render() {
   if (state.owner) chip.querySelector("button").onclick = () => setOwner("");
   renderCards();
   renderCounters();
-  renderLegend();
   renderList();
 }
 
@@ -202,49 +199,32 @@ function renderCards() {
       <span>${shapeSVG(KINDS[k].shape, "#2a2520", 11, "none")}${KINDS[k].label}</span>
     </button>`).join("");
   document.querySelectorAll("[data-kind]").forEach((b) => b.onclick = () => { state.kind = state.kind === b.dataset.kind ? "" : b.dataset.kind; render(); });
-  // Proportion bar: who controls what is currently shown.
-  const byType = {};
-  for (const f of shown) byType[f.properties.owner_type] = (byType[f.properties.owner_type] || 0) + 1;
-  document.getElementById("kind-bar").innerHTML = Object.keys(TYPE_LABELS).filter((t) => byType[t])
-    .map((t) => `<i style="width:${100 * byType[t] / shown.length}%;background:${COLORS[t]}" title="${TYPE_LABELS[t]}: ${byType[t]}"></i>`).join("");
 }
 
 function renderCounters() {
-  // Counters reflect the other active filters so they stay useful as filters.
+  // Counts reflect the other active filters, so they stay useful as filters.
   const byType = {}, byCountry = {};
   for (const f of all()) {
     const p = f.properties;
     if (matches(p, "type")) byType[p.owner_type] = (byType[p.owner_type] || 0) + 1;
-    if (matches(p, "country")) { const c = p.ultimate_country || ""; byCountry[c] = (byCountry[c] || 0) + 1; }
+    if (matches(p, "country") && p.ultimate_country) byCountry[p.ultimate_country] = (byCountry[p.ultimate_country] || 0) + 1;
   }
   document.getElementById("type-counters").innerHTML = Object.keys(TYPE_LABELS).filter((t) => byType[t]).map((t) =>
     `<button class="counter" data-type="${t}" aria-pressed="${state.type === t}"><span class="dot" style="background:${COLORS[t]}"></span>${TYPE_LABELS[t]} <b>${byType[t].toLocaleString()}</b></button>`).join("");
-  const top = Object.entries(byCountry).filter(([c]) => c).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  document.getElementById("country-counters").innerHTML = top.map(([c, n]) =>
-    `<button class="counter" data-country="${esc(c)}" aria-pressed="${state.country === c}">${esc(countryName(c))} <b>${n.toLocaleString()}</b></button>`).join("");
   document.querySelectorAll("[data-type]").forEach((b) => b.onclick = () => { state.type = state.type === b.dataset.type ? "" : b.dataset.type; render(); });
-  document.querySelectorAll("[data-country]").forEach((b) => b.onclick = () => {
-    state.country = state.country === b.dataset.country ? "" : b.dataset.country;
-    document.getElementById("f-country").value = state.country;
-    render();
-  });
-}
-
-function renderLegend() {
-  const kinds = [...new Set(shown.map((f) => kindOf(f.properties)))];
-  const types = Object.keys(TYPE_LABELS).filter((t) => shown.some((f) => f.properties.owner_type === t));
-  document.getElementById("legend").innerHTML = `
-    <div class="row">${Object.keys(KINDS).filter((k) => kinds.includes(k)).map((k) =>
-      `<span>${shapeSVG(KINDS[k].shape, "#2a2520", 11, "none")}${esc(KINDS[k].label.split(" & ")[0].split(",")[0])}</span>`).join("")}</div>
-    <div class="row">${types.map((t) => `<span><i class="dot" style="background:${COLORS[t]}"></i>${TYPE_LABELS[t]}</span>`).join("")}</div>`;
+  const sel = document.getElementById("f-country");
+  const opts = Object.entries(byCountry).sort((a, b) => b[1] - a[1]);
+  if (state.country && !byCountry[state.country]) opts.unshift([state.country, 0]);
+  sel.innerHTML = `<option value="">All countries</option>` + opts.map(([c, n]) =>
+    `<option value="${esc(c)}">${esc(countryName(c))} (${n.toLocaleString()})</option>`).join("");
+  sel.value = state.country;
 }
 
 // Places in the current map view, biggest holdings first.
 function renderList() {
   const bounds = map.getBounds();
   const inView = shown.filter((f) => bounds.contains([f.geometry.coordinates[1], f.geometry.coordinates[0]]));
-  const titles = inView.reduce((n, f) => n + (f.properties.business_type ? 0 : f.properties.title_count || 1), 0);
-  document.getElementById("shown").textContent = `${inView.length.toLocaleString()} places · ${titles.toLocaleString()} titles`;
+  document.getElementById("shown").textContent = `${inView.length.toLocaleString()} places in view`;
   const top = inView.sort((a, b) => (b.properties.title_count || 1) - (a.properties.title_count || 1)).slice(0, 60);
   const list = document.getElementById("place-list");
   list.innerHTML = top.map((f, i) => {
@@ -252,81 +232,81 @@ function renderList() {
     return `<li data-i="${i}">${shapeSVG(KINDS[k].shape, COLORS[p.owner_type] || COLORS.unknown, 12)}
       <div><div class="nm">${esc(p.name)}</div>
       <div class="sub">${esc(p.ultimate_owner || p.registered_owner || "Owner not established")} · ${esc(countryName(p.ultimate_country))}</div></div>
-      <span class="n">${p.business_type ? esc(p.business_type) : (p.title_count || 1) > 1 ? `${p.title_count} titles` : ""}</span></li>`;
-  }).join("") + (inView.length > top.length ? `<li class="more">and ${(inView.length - top.length).toLocaleString()} more: zoom in or search to narrow down</li>` : "");
+      <span class="n">${(p.title_count || 1) > 1 ? `${p.title_count} titles` : ""}</span></li>`;
+  }).join("") + (inView.length > top.length ? `<li class="more">+ ${(inView.length - top.length).toLocaleString()} more. Zoom in or search.</li>` : "");
   list.querySelectorAll("li[data-i]").forEach((li) => li.onclick = () => {
     const f = top[+li.dataset.i];
     map.setView([f.geometry.coordinates[1], f.geometry.coordinates[0]], Math.max(map.getZoom(), 16));
     openPanel(f.properties);
+    setSheet(false);
   });
 }
 map.on("moveend", () => { if (features.length) renderList(); });
 
 const FLAG_TEXT = {
-  multiple_bo: "More than one person or company is registered as having control. The chain below follows one of them.",
-  mixed_uk_foreign: "Control is shared between UK and non-UK owners.",
-  multiple_foreign_countries: "Non-UK owners from more than one country share control.",
-  cycle: "The ownership records loop back on themselves; the chain stops where the loop begins.",
-  max_hops: "The chain was stopped after eight steps.",
-  curated_controller: "The last step was added by hand from a published source (linked), because the register names a fund manager's founder rather than the funds.",
-  venue_office_match: "Operator found by name: a company with exactly this trading name has its registered office at this address.",
-  venue_name_match: "Operator found by name only: it is the one active company with exactly this name. The hygiene register does not record who runs a business, so this is our reading, not a registered fact.",
-  venue_brand: "This company trades at three or more places in the area. Some branches of a brand may be run by franchisees, not by the company shown.",
-  inferred_ground_rent: "Probably a ground-rent interest: the owner holds the freeholds of many individual houses, which are usually sold to residents on long leases. The residents own their homes.",
+  multiple_bo: "Several owners are registered. The chain follows one.",
+  mixed_uk_foreign: "Control is shared with a UK owner.",
+  multiple_foreign_countries: "The owners are based in more than one country.",
+  cycle: "The company records loop back on themselves.",
+  max_hops: "The chain was cut off after eight companies.",
+  curated_controller: "The last link is added by us from the published source shown, because the register names a fund manager's founder.",
+  venue_office_match: "Operator matched by name and registered address.",
+  venue_name_match: "Operator matched by name only. The hygiene register doesn't say who runs a business.",
+  venue_brand: "Branches of this brand may be run by franchisees.",
+  inferred_ground_rent: "Probably a ground rent. Residents usually own the homes on long leases.",
 };
 function flagNote(flags) {
-  const lines = (flags || []).map((f) => FLAG_TEXT[f.split("@")[0]]).filter(Boolean);
-  return lines.length ? `<p class="note">${[...new Set(lines)].map(esc).join("<br>")}</p>` : "";
+  const lines = [...new Set((flags || []).map((f) => FLAG_TEXT[f.split("@")[0]]).filter(Boolean))];
+  return lines.length ? `<ul class="note">${lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : "";
 }
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
 
 function openPanel(p) {
-  const sourceLink = (s) => s ? ` <a href="${esc(s)}" target="_blank" rel="noopener">source</a>` : "";
+  const k = kindOf(p), venue = k === "venue";
+  const link = (s) => s ? ` <a href="${esc(s)}" target="_blank" rel="noopener">↗</a>` : "";
   const chain = (p.chain || []).map((s) => `
-    <li><div>${esc(s.name || s.company_number || "Unnamed entity")}${sourceLink(s.source)}</div>
-      <div class="j">${esc([s.jurisdiction && (s.jurisdiction.length === 2 ? countryName(s.jurisdiction) : s.jurisdiction), s.country_of_residence && `resident: ${s.country_of_residence}`, s.nationality && `nationality: ${s.nationality}`, s.company_number && `No. ${s.company_number}`].filter(Boolean).join(" · "))}</div>${s.note ? `<div class="j">${esc(s.note)}</div>` : ""}</li>`).join("");
-  const venue = !!p.business_type;
-  const rows = venue ? [
+    <li><div>${esc(s.name || s.company_number || "Unnamed")}${link(s.source)}</div>
+      <div class="j">${esc([s.jurisdiction && (s.jurisdiction.length === 2 ? countryName(s.jurisdiction) : s.jurisdiction),
+        s.country_of_residence && `lives in ${s.country_of_residence}`, s.company_number && `No. ${s.company_number}`].filter(Boolean).join(" · "))}</div>
+      ${s.note ? `<div class="j">${esc(s.note)}</div>` : ""}</li>`).join("");
+  const facts = venue ? [
     ["Business", esc(p.business_type)],
-    ["Operator", `${esc(p.operator)} <span class="j">(matched by name; see note)</span>`],
-    ["Ultimately controlled by", `${esc(p.ultimate_owner || "Not established")} <span class="j">(our reading of the chain)</span>`],
-    ["Country", esc(countryName(p.ultimate_country))],
-    ["Owner type", `<span class="badge" style="background:${COLORS[p.owner_type]}">${TYPE_LABELS[p.owner_type] || p.owner_type}</span>`],
-    ["Hygiene rating", esc([p.rating, p.rating_date && `(inspected ${p.rating_date})`].filter(Boolean).join(" ") || "—")],
+    ["Run by", esc(p.operator)],
+    ["Hygiene rating", esc(p.rating || "—")],
   ] : [
-    ["Registered owner", p.registered_owner ? `${esc(p.registered_owner)} <span class="j">(from the register)</span>` : "To be confirmed from Land Registry"],
-    ["Ultimately controlled by", `${esc(p.ultimate_owner || "Not established")} <span class="j">(our reading of the chain)</span>`],
-    ["Country", esc(countryName(p.ultimate_country))],
-    ["Owner type", `<span class="badge" style="background:${COLORS[p.owner_type]}">${TYPE_LABELS[p.owner_type] || p.owner_type}</span>`],
-    ...(p.title_count > 1 ? [["Titles", `${p.title_count} at this location`]] : []),
-    ["Property type", esc(String(p.property_type).replace("_", " "))],
+    ["Registered owner", esc(p.registered_owner || "—")],
+    ...(p.title_count > 1 ? [["Titles", p.title_count]] : []),
     ["Tenure", esc(p.tenure || "—")],
-    ["Price paid", p.title_count > 1
-      ? (p.price_paid ? `${gbp(p.price_paid)} <span class="j">(total for the ${p.price_paid_known} of ${p.title_count} titles with a price)</span>` : "—")
-      : gbp(p.price_paid) || "—"],
-    ["Evidence", esc(p.evidence)],
-    ["Last checked", esc(p.last_checked)],
+    ["Price paid", p.title_count > 1 && p.price_paid ? `${gbp(p.price_paid)} <span class="j">(${p.price_paid_known} of ${p.title_count})</span>` : gbp(p.price_paid) || "—"],
   ];
   document.getElementById("panel-body").innerHTML = `
-    <div class="kind">${shapeSVG(KINDS[kindOf(p)].shape, COLORS[p.owner_type] || COLORS.unknown, 12)}${esc(KINDS[kindOf(p)].label)}</div>
+    <div class="kind">${shapeSVG(KINDS[k].shape, COLORS[p.owner_type] || COLORS.unknown, 12)}${esc(KINDS[k].label)}</div>
     <h2>${esc(p.name)}</h2>
-    <p class="addr">${esc([p.address, p.postcode].filter(Boolean).join(", "))}</p>
-    ${p.geocode_precision && p.geocode_precision !== "postcode" ? `<p class="note">Location is approximate (placed by ${p.geocode_precision === "street" ? "street name" : "address"}; the register gives no postcode).</p>` : ""}
-    ${p.review_status && p.review_status !== "verified" ? `<p class="note review">Awaiting review: ${esc(p.review_status.replace("_", " "))}</p>` : ""}
-    <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
+    <p class="addr">${esc([p.address !== p.name ? p.address : null, p.postcode].filter(Boolean).join(", "))}</p>
+    <div class="owner">
+      <div class="j">Controlled by</div>
+      <div class="who">${esc(p.ultimate_owner || "Not known")}</div>
+      <div class="j"><span class="badge" style="background:${COLORS[p.owner_type]}">${TYPE_LABELS[p.owner_type] || p.owner_type}</span>
+        ${p.ultimate_country ? esc(countryName(p.ultimate_country)) : ""}</div>
+    </div>
+    <dl>${facts.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("")}</dl>
     ${flagNote(p.flags)}
-    <div class="label">Ownership chain</div>
-    <ol class="chain">${chain || "<li>No chain recorded</li>"}</ol>
-    ${p.titles ? `<details class="titles"><summary>All ${p.titles.length} titles</summary><ul>${p.titles.map((t) =>
+    ${p.geocode_precision && p.geocode_precision !== "postcode" ? `<p class="j">Pin is approximate: the register gives no postcode.</p>` : ""}
+    <details open><summary>How we know</summary><ol class="chain">${chain || "<li>No chain recorded</li>"}</ol></details>
+    ${p.titles ? `<details><summary>All ${p.titles.length} titles</summary><ul class="titles">${p.titles.map((t) =>
       `<li><b>${esc(t.title)}</b> ${esc(t.address)}${t.price_paid ? ` · ${gbp(t.price_paid)}` : ""}</li>`).join("")}</ul></details>` : ""}
-    ${venue ? '<p class="note">This is a business, not a property title: the operator may rent the premises.</p>' : ""}
-    <p><button type="button" class="link-button" id="owner-this">Show everything owned by ${esc(ownerKey(p))}</button></p>
-    ${p.notes ? `<div class="label">Notes</div><p class="note">${esc(p.notes)}</p>` : ""}
-    <div class="label">Sources</div>
-    <ol class="sources">${(p.sources || []).map((s) => `<li><a href="${esc(s)}" target="_blank" rel="noopener">${esc(s)}</a></li>`).join("")}</ol>
-    <p><button type="button" class="link-button" id="suggest-this">Suggest a correction to this entry</button></p>`;
+    ${p.notes ? `<p class="note">${esc(p.notes)}</p>` : ""}
+    <details><summary>Sources</summary><ol class="sources">${(p.sources || []).map((s) => `<li><a href="${esc(s)}" target="_blank" rel="noopener">${esc(s.replace(/^https?:\/\/(www\.)?/, ""))}</a></li>`).join("")}</ol></details>
+    <div class="panel-actions">
+      <button type="button" id="owner-this">Everything they own</button>
+      <button type="button" id="suggest-this">Suggest a correction</button>
+    </div>
+    <p class="j">Checked ${esc(fmtDate(p.last_checked))}${p.evidence === "inferred" ? " · controller is our reading of the register" : ""}</p>`;
   document.getElementById("suggest-this").onclick = () => openCorrection(p);
   document.getElementById("owner-this").onclick = () => setOwner(ownerKey(p));
-  document.getElementById("panel").hidden = false;
+  const panel = document.getElementById("panel");
+  panel.hidden = false;
+  panel.scrollTop = 0;
 }
 document.getElementById("close").addEventListener("click", () => { document.getElementById("panel").hidden = true; });
 
@@ -385,10 +365,9 @@ document.getElementById("top-owners").addEventListener("click", () => {
   const rows = Object.values(owners).sort((a, b) => b.titles - a.titles).slice(0, 100);
   document.getElementById("panel-body").innerHTML = `
     <h2>Top owners</h2>
-    <p class="addr">By number of Land Registry titles, within the current filters. Click a name to show only their property.</p>
+    <p class="addr">By number of titles, within your filters.</p>
     <table class="owners"><thead><tr><th>Owner</th><th>Country</th><th class="n">Titles</th></tr></thead><tbody>
     ${rows.map((o) => `<tr><td><button type="button" class="link-button" data-owner="${esc(o.name)}">${esc(o.name)}</button>
-      ${o.registeredOnly ? '<div class="j">registered owner; controller not established</div>' : ""}
       <div class="j"><span class="dot" style="background:${COLORS[o.type]}"></span> ${TYPE_LABELS[o.type] || o.type}</div></td>
       <td>${esc(countryName(o.country))}</td><td class="n">${o.titles}</td></tr>`).join("")}
     </tbody></table>`;
@@ -411,3 +390,17 @@ document.getElementById("download").addEventListener("click", () => {
   a.click();
   URL.revokeObjectURL(a.href);
 });
+
+// --- Phone layout: the sidebar is a bottom sheet -----------------------------
+const sheetBtn = document.getElementById("sheet");
+function setSheet(open) {
+  document.getElementById("sidebar").classList.toggle("open", open);
+  sheetBtn.setAttribute("aria-expanded", open);
+  sheetBtn.textContent = open ? "Map" : "Filters";
+}
+sheetBtn.addEventListener("click", () => setSheet(!document.getElementById("sidebar").classList.contains("open")));
+document.getElementById("q").addEventListener("focus", () => { if (matchMedia("(max-width: 760px)").matches) setSheet(true); });
+// While a detail panel is open, it takes the bottom of the screen on phones.
+const panelEl = document.getElementById("panel");
+new MutationObserver(() => document.body.classList.toggle("panel-open", !panelEl.hidden))
+  .observe(panelEl, { attributes: true, attributeFilter: ["hidden"] });
