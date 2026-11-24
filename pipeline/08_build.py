@@ -141,6 +141,7 @@ def register_features(postcodes):
                 "sources": [url] + sorted({s["source"] for s in chain[1:] if s.get("source")}),
                 "price_paid": num(r.get("Price Paid")), "last_checked": TODAY,
                 "review_status": None, "notes": None,
+                "flags": [f for f in ((c or {}).get("flags") or "").split("|") if f],
             })
     if pending:
         print(f"  {len(pending):,} OCOD titles skipped: owner not yet looked up in step 5")

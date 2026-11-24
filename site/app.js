@@ -12,11 +12,11 @@ const countryName = (c) => {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const gbp = (n) => n ? "£" + Number(n).toLocaleString("en-GB") : null;
 
-const map = L.map("map", { zoomControl: true }).setView([53.481, -2.235], 13);
-// OSM standard tiles are fine for development; pick a production tile provider before launch.
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+const map = L.map("map", { zoomControl: true, maxZoom: 19 }).setView([53.481, -2.235], 13);
+// OpenFreeMap: free vector tiles, no key, production use allowed (https://openfreemap.org).
+L.maplibreGL({
+  style: "https://tiles.openfreemap.org/styles/positron",
+  attribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
 }).addTo(map);
 const layer = L.markerClusterGroup({
   maxClusterRadius: 40, spiderfyOnMaxZoom: true, showCoverageOnHover: false,
@@ -108,6 +108,18 @@ function toggle(key, value) {
   render();
 }
 
+const FLAG_TEXT = {
+  multiple_bo: "More than one person or company is registered as having control. The chain below follows one of them.",
+  mixed_uk_foreign: "Control is shared between UK and non-UK owners.",
+  multiple_foreign_countries: "Non-UK owners from more than one country share control.",
+  cycle: "The ownership records loop back on themselves; the chain stops where the loop begins.",
+  max_hops: "The chain was stopped after eight steps.",
+};
+function flagNote(flags) {
+  const lines = (flags || []).map((f) => FLAG_TEXT[f.split("@")[0]]).filter(Boolean);
+  return lines.length ? `<p class="note">${[...new Set(lines)].map(esc).join("<br>")}</p>` : "";
+}
+
 function openPanel(p) {
   const sourceLink = (s) => s ? ` <a href="${esc(s)}" target="_blank" rel="noopener">source</a>` : "";
   const chain = (p.chain || []).map((s) => `
@@ -130,11 +142,54 @@ function openPanel(p) {
     ${p.geocode_precision && p.geocode_precision !== "postcode" ? `<p class="note">Location is approximate (placed by ${p.geocode_precision === "street" ? "street name" : "address"}; the register gives no postcode).</p>` : ""}
     ${p.review_status && p.review_status !== "verified" ? `<p class="note review">Awaiting review: ${esc(p.review_status.replace("_", " "))}</p>` : ""}
     <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
+    ${flagNote(p.flags)}
     <div class="label">Ownership chain</div>
     <ol class="chain">${chain || "<li>No chain recorded</li>"}</ol>
     ${p.notes ? `<div class="label">Notes</div><p class="note">${esc(p.notes)}</p>` : ""}
     <div class="label">Sources</div>
-    <ol class="sources">${(p.sources || []).map((s) => `<li><a href="${esc(s)}" target="_blank" rel="noopener">${esc(s)}</a></li>`).join("")}</ol>`;
+    <ol class="sources">${(p.sources || []).map((s) => `<li><a href="${esc(s)}" target="_blank" rel="noopener">${esc(s)}</a></li>`).join("")}</ol>
+    <p><button type="button" class="link-button" id="suggest-this">Suggest a correction to this entry</button></p>`;
+  document.getElementById("suggest-this").onclick = () => openCorrection(p);
   document.getElementById("panel").hidden = false;
 }
 document.getElementById("close").addEventListener("click", () => { document.getElementById("panel").hidden = true; });
+
+// --- Corrections -----------------------------------------------------------
+const dlg = document.getElementById("correction");
+const form = document.getElementById("correction-form");
+const statusEl = document.getElementById("c-status");
+
+function openCorrection(p) {
+  form.reset();
+  statusEl.textContent = "";
+  form.property_id.value = p ? p.id : "";
+  form.property_name.value = p ? p.name : "";
+  const label = document.getElementById("c-property");
+  label.hidden = !p;
+  if (p) label.textContent = `About: ${p.name} (${p.id})`;
+  document.getElementById("c-submit").disabled = false;
+  dlg.showModal();
+}
+document.getElementById("suggest-general").addEventListener("click", (e) => { e.preventDefault(); openCorrection(null); });
+document.getElementById("c-cancel").addEventListener("click", () => dlg.close());
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const submit = document.getElementById("c-submit");
+  submit.disabled = true;
+  statusEl.textContent = "Sending…";
+  try {
+    const res = await fetch("/api/corrections", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(Object.fromEntries(new FormData(form))),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || `Error ${res.status}`);
+    statusEl.textContent = "Thank you. Your suggestion has been received and will be reviewed.";
+    setTimeout(() => dlg.close(), 2500);
+  } catch (err) {
+    statusEl.textContent = `Sorry, that didn't send (${err.message}). Please try again.`;
+    submit.disabled = false;
+  }
+});
