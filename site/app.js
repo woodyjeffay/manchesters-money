@@ -12,49 +12,100 @@ const countryName = (c) => {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const gbp = (n) => n ? "£" + Number(n).toLocaleString("en-GB") : null;
 
+// --- Kinds of place: each has its own marker shape --------------------------
+const KINDS = {
+  homes:       { label: "Homes & flats", shape: "square" },
+  hospitality: { label: "Hotels, pubs & restaurants", shape: "diamond" },
+  land:        { label: "Land & sites", shape: "triangle" },
+  other:       { label: "Offices, shops & other", shape: "circle" },
+  venue:       { label: "Food & drink firms", shape: "star" },
+  minor:       { label: "Parking & ground rents", shape: "ring" },
+};
+const kindOf = (p) => p.business_type ? "venue"
+  : (p.parking_only || p.property_type === "parking" || p.property_type === "ground_rent") ? "minor"
+  : p.property_type === "residential" ? "homes"
+  : p.property_type === "hospitality" ? "hospitality"
+  : p.property_type === "land" ? "land" : "other";
+
+function shapeSVG(shape, color, size = 12, stroke = "#fff") {
+  const h = size / 2, w = 1.6;
+  const body = {
+    square: `<rect x="${w}" y="${w}" width="${size - 2 * w}" height="${size - 2 * w}" rx="1.5"/>`,
+    diamond: `<path d="M${h} ${w * 0.6}L${size - w * 0.6} ${h}L${h} ${size - w * 0.6}L${w * 0.6} ${h}Z"/>`,
+    triangle: `<path d="M${h} ${w}L${size - w} ${size - w * 1.2}H${w}Z"/>`,
+    circle: `<circle cx="${h}" cy="${h}" r="${h - w}"/>`,
+    star: `<path d="${star(h, h, h - w * 0.4, (h - w) * 0.45)}"/>`,
+    ring: `<circle cx="${h}" cy="${h}" r="${h - w * 1.6}" fill="#fff" stroke="${color}" stroke-width="${w * 1.6}"/>`,
+  }[shape];
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="${color}" stroke="${stroke}" stroke-width="${w}" stroke-linejoin="round">${body}</svg>`;
+}
+function star(cx, cy, r1, r2) {
+  let d = "";
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 ? r2 : r1, a = Math.PI / 5 * i - Math.PI / 2;
+    d += `${i ? "L" : "M"}${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`;
+  }
+  return d + "Z";
+}
+
+// --- Map ------------------------------------------------------------------------
 const map = L.map("map", {
   zoomControl: true, maxZoom: 19, minZoom: 9,
   maxBounds: [[53.20, -2.90], [53.75, -1.70]], maxBoundsViscosity: 0.8,
-}).setView([53.481, -2.235], 13);
+}).setView([53.4795, -2.2425], 14);
 // If the page loads in a hidden tab the map measures 0x0; re-measure when it becomes visible.
 document.addEventListener("visibilitychange", () => { if (!document.hidden) map.invalidateSize(); });
 window.addEventListener("resize", () => map.invalidateSize());
-// OpenFreeMap: free vector tiles, no key, production use allowed (https://openfreemap.org).
-L.maplibreGL({
-  style: "https://tiles.openfreemap.org/styles/positron",
-  attribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
-}).addTo(map);
+
+// OpenFreeMap "positron" (free, no key: https://openfreemap.org), recoloured to a warm paper palette.
+const BASE = {
+  background: "#f3ece1", park: "#dfe7d0", landcover_wood: "#d7e2c6", water: "#a9cbdd", waterway: "#a9cbdd",
+  landuse_residential: "#efe6d8", building: "#e7dccb", "aeroway-area": "#efe6d8",
+};
+fetch("https://tiles.openfreemap.org/styles/positron").then((r) => r.json()).then((style) => {
+  for (const l of style.layers) {
+    const p = l.paint ||= {};
+    if (BASE[l.id]) p[l.type === "line" ? "line-color" : l.type === "background" ? "background-color" : "fill-color"] = BASE[l.id];
+    if (l.id === "building") p["fill-outline-color"] = "#dccdb7";
+    if (/casing/.test(l.id)) p["line-color"] = "#e3d5c0";
+    if (/highway_minor|highway_path/.test(l.id)) p["line-color"] = "#fffaf2";
+    if (/highway_(major|motorway).*inner/.test(l.id)) p["line-color"] = "#fff7ea";
+    if (/^railway/.test(l.id) && !/dash/.test(l.id)) p["line-color"] = "#d4c6b1";
+    if (/^railway.*dash/.test(l.id)) p["line-color"] = "#f3ece1";
+    if (/^boundary/.test(l.id)) p["line-color"] = "#c9b9a2";
+    if (l.type === "symbol" && p["text-color"]) {
+      p["text-color"] = /water/.test(l.id) ? "#4a7591" : /label_(city|town)/.test(l.id) ? "#2a2520" : "#6f665b";
+      p["text-halo-color"] = "#f6efe4";
+    }
+  }
+  L.maplibreGL({
+    style,
+    attribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+  }).addTo(map);
+});
+
+// Individual markers when zoomed in (so shapes are readable); neutral clusters when zoomed out.
 const layer = L.markerClusterGroup({
-  maxClusterRadius: 40, spiderfyOnMaxZoom: true, showCoverageOnHover: false,
+  maxClusterRadius: 45, disableClusteringAtZoom: 14, spiderfyOnMaxZoom: false, showCoverageOnHover: false,
   iconCreateFunction: (cluster) => {
-    // Colour the cluster by its most common owner type.
-    const counts = {};
-    for (const m of cluster.getAllChildMarkers()) counts[m.options.ownerType] = (counts[m.options.ownerType] || 0) + 1;
-    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
     const n = cluster.getChildCount();
-    const size = n < 10 ? 28 : n < 50 ? 34 : 42;
-    return L.divIcon({
-      html: `<div style="background:${COLORS[top] || COLORS.unknown}">${n}</div>`,
-      className: "cluster", iconSize: [size, size],
-    });
+    const size = n < 10 ? 28 : n < 100 ? 34 : 42;
+    return L.divIcon({ html: `<div>${n}</div>`, className: "cluster", iconSize: [size, size] });
   },
 }).addTo(map);
+const zoomClass = () => map.getContainer().classList.toggle("z-far", map.getZoom() < 14);
+map.on("zoomend", zoomClass); zoomClass();
 
-const state = { area: "", country: "", type: "", ptype: "", owner: "", parking: false, venues: false };
-// Parking/storage and ground-rent interests are hidden unless asked for.
-const MINOR = new Set(["parking", "ground_rent"]);
-const isMinor = (p) => MINOR.has(p.property_type) || p.parking_only;
+// --- State and data ---------------------------------------------------------------
+const state = { area: "", country: "", type: "", kind: "", owner: "", q: "" };
 const ownerKey = (p) => p.ultimate_owner || p.registered_owner || p.name;
-let features = [];
-let venues = [];
-// Food & drink businesses sit in their own layer, drawn as squares, so they never mix with titles.
-const venueLayer = L.layerGroup().addTo(map);
+let features = [];   // property titles (grouped by building)
+let venues = [];     // food & drink businesses
+const all = () => features.concat(venues);
+
 fetch("data/venues.geojson").then((r) => r.ok ? r.json() : { features: [] }).then((gj) => {
-  venues = gj.features;
-  document.getElementById("venues-toggle").hidden = !venues.length;  // only offer the layer once it has data
-  render();
-})
-  .catch(() => {});
+  venues = gj.features; render();
+}).catch(() => {});
 
 fetch("data/properties.geojson").then((r) => r.json()).then((gj) => {
   features = gj.features;
@@ -69,106 +120,147 @@ fetch("data/properties.geojson").then((r) => r.json()).then((gj) => {
   document.getElementById("area-filter").hidden = areas.length < 2;
   if (areas.length > 1) document.getElementById("tagline").textContent =
     `Who ultimately owns and controls property in ${areas.slice(0, -1).join(", ")} and ${areas.at(-1)}, from public registers.`;
-  fillSelect("f-country", unique((p) => p.ultimate_country || ""), countryName);
-  fillSelect("f-type", Object.keys(TYPE_LABELS).filter((t) => features.some((f) => f.properties.owner_type === t)), (t) => TYPE_LABELS[t]);
-  fillSelect("f-ptype", unique((p) => p.property_type), (s) => (s[0].toUpperCase() + s.slice(1)).replace("_", " "));
+  fillSelect("f-country", unique((p) => p.ultimate_country || "").filter(Boolean), countryName);
   render();
-  const b = L.latLngBounds(features.map((f) => [f.geometry.coordinates[1], f.geometry.coordinates[0]]));
+  // Open on the city centre, where the holdings are densest; the list and clusters show the rest.
   map.invalidateSize();
-  if (b.isValid() && map.getSize().x > 0) map.fitBounds(b.pad(0.05), { maxZoom: 14 });
+  map.setView([53.4795, -2.2425], 14);
 });
 
 function unique(fn) {
-  return [...new Set(features.map((f) => fn(f.properties)))].sort();
+  return [...new Set(features.map((f) => fn(f.properties)))].sort((a, b) => String(a).localeCompare(String(b)));
 }
 function fillSelect(id, values, label) {
   const el = document.getElementById(id);
   for (const v of values) el.insertAdjacentHTML("beforeend", `<option value="${esc(v)}">${esc(label(v))}</option>`);
 }
 
-const filters = { area: "f-area", country: "f-country", type: "f-type", ptype: "f-ptype" };
+const filters = { area: "f-area", country: "f-country" };
 for (const [k, id] of Object.entries(filters)) {
   document.getElementById(id).addEventListener("change", (e) => { state[k] = e.target.value; render(); });
 }
-document.getElementById("f-parking").addEventListener("change", (e) => { state.parking = e.target.checked; render(); });
-document.getElementById("f-venues").addEventListener("change", (e) => { state.venues = e.target.checked; render(); });
+let qTimer;
+document.getElementById("q").addEventListener("input", (e) => {
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => { state.q = e.target.value.trim().toLowerCase(); render(); }, 150);
+});
 document.getElementById("reset").addEventListener("click", () => {
-  for (const [k, id] of Object.entries(filters)) { state[k] = ""; document.getElementById(id).value = ""; }
-  state.owner = ""; state.parking = false; document.getElementById("f-parking").checked = false;
-  state.venues = false; document.getElementById("f-venues").checked = false;
+  Object.assign(state, { area: "", country: "", type: "", kind: "", owner: "", q: "" });
+  for (const id of Object.values(filters)) document.getElementById(id).value = "";
+  document.getElementById("q").value = "";
   render();
 });
 function setOwner(o) { state.owner = o; render(); }
 
+const haystack = (p) => (p._hay ||= [p.name, p.address, p.postcode, p.registered_owner, p.ultimate_owner, p.operator,
+  countryName(p.ultimate_country)].filter(Boolean).join(" ").toLowerCase());
+
 function matches(p, skip) {
+  const k = kindOf(p);
   return (!state.area || p.area === state.area)
     && (skip === "country" || !state.country || (p.ultimate_country || "") === state.country)
     && (skip === "type" || !state.type || p.owner_type === state.type)
-    && (!state.ptype || p.property_type === state.ptype)
     && (skip === "owner" || !state.owner || ownerKey(p) === state.owner)
-    && (state.parking || state.ptype === p.property_type || !isMinor(p));
+    && (!state.q || haystack(p).includes(state.q))
+    // Parking/storage and ground rents are hidden unless that card is chosen.
+    && (skip === "kind" ? true : state.kind ? k === state.kind : k !== "minor");
 }
 
+let shown = [];
 function render() {
   layer.clearLayers();
-  const shown = features.filter((f) => matches(f.properties));
-  for (const f of shown) {
-    const p = f.properties;
+  shown = all().filter((f) => matches(f.properties));
+  const markers = shown.map((f) => {
+    const p = f.properties, k = kindOf(p);
     const [lon, lat] = f.geometry.coordinates;
-    L.circleMarker([lat, lon], {
-      radius: 7, weight: 1.5, color: "#fff", fillColor: COLORS[p.owner_type] || COLORS.unknown, fillOpacity: 0.9,
-      ownerType: p.owner_type,
-    }).bindTooltip(esc(p.name)).on("click", () => openPanel(p)).addTo(layer);
-  }
-  venueLayer.clearLayers();
-  const shownVenues = state.venues ? venues.filter((f) => matchesVenue(f.properties)) : [];
-  for (const f of shownVenues) {
-    const p = f.properties;
-    const [lon, lat] = f.geometry.coordinates;
-    L.marker([lat, lon], {
-      icon: L.divIcon({ className: "venue", iconSize: [12, 12],
-        html: `<div style="border-color:${COLORS[p.owner_type] || COLORS.unknown}"></div>` }),
-    }).bindTooltip(`${esc(p.name)} · ${esc(p.business_type)}`).on("click", () => openPanel(p)).addTo(venueLayer);
-  }
-  const titles = shown.reduce((n, f) => n + (f.properties.title_count || 1), 0);
-  document.getElementById("shown").textContent = `${shown.length.toLocaleString()} locations · ${titles.toLocaleString()} titles`
-    + (state.venues ? ` · ${shownVenues.length.toLocaleString()} businesses` : "");
+    const size = (p.title_count || 1) >= 20 ? 22 : (p.title_count || 1) >= 5 ? 18 : 15;
+    return L.marker([lat, lon], {
+      icon: L.divIcon({ className: "mk", html: shapeSVG(KINDS[k].shape, COLORS[p.owner_type] || COLORS.unknown, size),
+        iconSize: [size, size] }),
+      riseOnHover: true,
+    }).bindTooltip(`<b>${esc(p.name)}</b><br>${esc(KINDS[k].label)} · ${esc(p.ultimate_owner || p.registered_owner || "")}`)
+      .on("click", () => openPanel(p));
+  });
+  layer.addLayers(markers);
   const chip = document.getElementById("owner-chip");
   chip.hidden = !state.owner;
   chip.innerHTML = state.owner ? `Owner: ${esc(state.owner)} <button type="button" aria-label="Clear owner filter">×</button>` : "";
   if (state.owner) chip.querySelector("button").onclick = () => setOwner("");
+  renderCards();
   renderCounters();
+  renderLegend();
+  renderList();
 }
 
-function matchesVenue(p) {
-  return (!state.area || p.area === state.area)
-    && (!state.country || (p.ultimate_country || "") === state.country)
-    && (!state.type || p.owner_type === state.type)
-    && (!state.owner || ownerKey(p) === state.owner);
+function renderCards() {
+  const n = {};
+  for (const f of all()) if (matches(f.properties, "kind")) { const k = kindOf(f.properties); n[k] = (n[k] || 0) + 1; }
+  const kinds = Object.keys(KINDS).filter((k) => n[k] || (k === "venue" && venues.length));
+  document.getElementById("kind-cards").innerHTML = kinds.map((k) => `
+    <button type="button" class="card ${state.kind && state.kind !== k ? "dim" : ""}" data-kind="${k}" aria-pressed="${state.kind === k}">
+      <b>${(n[k] || 0).toLocaleString()}</b>
+      <span>${shapeSVG(KINDS[k].shape, "#2a2520", 11, "none")}${KINDS[k].label}</span>
+    </button>`).join("");
+  document.querySelectorAll("[data-kind]").forEach((b) => b.onclick = () => { state.kind = state.kind === b.dataset.kind ? "" : b.dataset.kind; render(); });
+  // Proportion bar: who controls what is currently shown.
+  const byType = {};
+  for (const f of shown) byType[f.properties.owner_type] = (byType[f.properties.owner_type] || 0) + 1;
+  document.getElementById("kind-bar").innerHTML = Object.keys(TYPE_LABELS).filter((t) => byType[t])
+    .map((t) => `<i style="width:${100 * byType[t] / shown.length}%;background:${COLORS[t]}" title="${TYPE_LABELS[t]}: ${byType[t]}"></i>`).join("");
 }
 
 function renderCounters() {
   // Counters reflect the other active filters so they stay useful as filters.
   const byType = {}, byCountry = {};
-  for (const f of features) {
+  for (const f of all()) {
     const p = f.properties;
     if (matches(p, "type")) byType[p.owner_type] = (byType[p.owner_type] || 0) + 1;
     if (matches(p, "country")) { const c = p.ultimate_country || ""; byCountry[c] = (byCountry[c] || 0) + 1; }
   }
   document.getElementById("type-counters").innerHTML = Object.keys(TYPE_LABELS).filter((t) => byType[t]).map((t) =>
-    `<button class="counter" data-type="${t}" aria-pressed="${state.type === t}"><span class="dot" style="background:${COLORS[t]}"></span>${TYPE_LABELS[t]} <b>${byType[t]}</b></button>`).join("");
-  const top = Object.entries(byCountry).filter(([c]) => c).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    `<button class="counter" data-type="${t}" aria-pressed="${state.type === t}"><span class="dot" style="background:${COLORS[t]}"></span>${TYPE_LABELS[t]} <b>${byType[t].toLocaleString()}</b></button>`).join("");
+  const top = Object.entries(byCountry).filter(([c]) => c).sort((a, b) => b[1] - a[1]).slice(0, 6);
   document.getElementById("country-counters").innerHTML = top.map(([c, n]) =>
-    `<button class="counter" data-country="${esc(c)}" aria-pressed="${state.country === c}">${esc(countryName(c))} <b>${n}</b></button>`).join("");
-  document.querySelectorAll("[data-type]").forEach((b) => b.onclick = () => toggle("type", b.dataset.type));
-  document.querySelectorAll("[data-country]").forEach((b) => b.onclick = () => toggle("country", b.dataset.country));
+    `<button class="counter" data-country="${esc(c)}" aria-pressed="${state.country === c}">${esc(countryName(c))} <b>${n.toLocaleString()}</b></button>`).join("");
+  document.querySelectorAll("[data-type]").forEach((b) => b.onclick = () => { state.type = state.type === b.dataset.type ? "" : b.dataset.type; render(); });
+  document.querySelectorAll("[data-country]").forEach((b) => b.onclick = () => {
+    state.country = state.country === b.dataset.country ? "" : b.dataset.country;
+    document.getElementById("f-country").value = state.country;
+    render();
+  });
 }
 
-function toggle(key, value) {
-  state[key] = state[key] === value ? "" : value;
-  document.getElementById(filters[key]).value = state[key];
-  render();
+function renderLegend() {
+  const kinds = [...new Set(shown.map((f) => kindOf(f.properties)))];
+  const types = Object.keys(TYPE_LABELS).filter((t) => shown.some((f) => f.properties.owner_type === t));
+  document.getElementById("legend").innerHTML = `
+    <div class="row">${Object.keys(KINDS).filter((k) => kinds.includes(k)).map((k) =>
+      `<span>${shapeSVG(KINDS[k].shape, "#2a2520", 11, "none")}${esc(KINDS[k].label.split(" & ")[0].split(",")[0])}</span>`).join("")}</div>
+    <div class="row">${types.map((t) => `<span><i class="dot" style="background:${COLORS[t]}"></i>${TYPE_LABELS[t]}</span>`).join("")}</div>`;
 }
+
+// Places in the current map view, biggest holdings first.
+function renderList() {
+  const bounds = map.getBounds();
+  const inView = shown.filter((f) => bounds.contains([f.geometry.coordinates[1], f.geometry.coordinates[0]]));
+  const titles = inView.reduce((n, f) => n + (f.properties.business_type ? 0 : f.properties.title_count || 1), 0);
+  document.getElementById("shown").textContent = `${inView.length.toLocaleString()} places · ${titles.toLocaleString()} titles`;
+  const top = inView.sort((a, b) => (b.properties.title_count || 1) - (a.properties.title_count || 1)).slice(0, 60);
+  const list = document.getElementById("place-list");
+  list.innerHTML = top.map((f, i) => {
+    const p = f.properties, k = kindOf(p);
+    return `<li data-i="${i}">${shapeSVG(KINDS[k].shape, COLORS[p.owner_type] || COLORS.unknown, 12)}
+      <div><div class="nm">${esc(p.name)}</div>
+      <div class="sub">${esc(p.ultimate_owner || p.registered_owner || "Owner not established")} · ${esc(countryName(p.ultimate_country))}</div></div>
+      <span class="n">${p.business_type ? esc(p.business_type) : (p.title_count || 1) > 1 ? `${p.title_count} titles` : ""}</span></li>`;
+  }).join("") + (inView.length > top.length ? `<li class="more">and ${(inView.length - top.length).toLocaleString()} more: zoom in or search to narrow down</li>` : "");
+  list.querySelectorAll("li[data-i]").forEach((li) => li.onclick = () => {
+    const f = top[+li.dataset.i];
+    map.setView([f.geometry.coordinates[1], f.geometry.coordinates[0]], Math.max(map.getZoom(), 16));
+    openPanel(f.properties);
+  });
+}
+map.on("moveend", () => { if (features.length) renderList(); });
 
 const FLAG_TEXT = {
   multiple_bo: "More than one person or company is registered as having control. The chain below follows one of them.",
@@ -215,6 +307,7 @@ function openPanel(p) {
     ["Last checked", esc(p.last_checked)],
   ];
   document.getElementById("panel-body").innerHTML = `
+    <div class="kind">${shapeSVG(KINDS[kindOf(p)].shape, COLORS[p.owner_type] || COLORS.unknown, 12)}${esc(KINDS[kindOf(p)].label)}</div>
     <h2>${esc(p.name)}</h2>
     <p class="addr">${esc([p.address, p.postcode].filter(Boolean).join(", "))}</p>
     ${p.geocode_precision && p.geocode_precision !== "postcode" ? `<p class="note">Location is approximate (placed by ${p.geocode_precision === "street" ? "street name" : "address"}; the register gives no postcode).</p>` : ""}
@@ -280,13 +373,13 @@ form.addEventListener("submit", async (e) => {
 // --- Top owners ------------------------------------------------------------
 document.getElementById("top-owners").addEventListener("click", () => {
   const owners = {};
-  for (const f of features) {
+  for (const f of all()) {
     const p = f.properties;
     if (!matches(p, "owner")) continue;
     const k = ownerKey(p);
     const o = owners[k] ||= { name: k, country: p.ultimate_country, type: p.owner_type, titles: 0, locations: 0,
                                registeredOnly: !p.ultimate_owner };
-    o.titles += p.title_count || 1;
+    o.titles += p.business_type ? 0 : p.title_count || 1;
     o.locations += 1;
   }
   const rows = Object.values(owners).sort((a, b) => b.titles - a.titles).slice(0, 100);
@@ -308,10 +401,9 @@ document.getElementById("download").addEventListener("click", () => {
   const cols = ["id", "kind", "name", "address", "postcode", "area", "registered_owner", "ultimate_owner",
     "ultimate_country", "owner_type", "property_type", "title_count", "title_numbers", "evidence", "sources"];
   const cell = (v) => { const s = Array.isArray(v) ? v.join(" | ") : String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const rows = features.filter((f) => matches(f.properties)).map((f) => ({ ...f.properties, kind: "property",
-    title_count: f.properties.title_count || 1 }));
-  if (state.venues) rows.push(...venues.filter((f) => matchesVenue(f.properties)).map((f) => ({ ...f.properties,
-    kind: "business", registered_owner: f.properties.operator, property_type: f.properties.business_type, evidence: "name match" })));
+  const rows = shown.map((f) => f.properties).map((p) => p.business_type
+    ? { ...p, kind: "business", registered_owner: p.operator, property_type: p.business_type, evidence: "name match" }
+    : { ...p, kind: "property", title_count: p.title_count || 1 });
   const note = "Contains HM Land Registry data (c) Crown copyright and database right 2026, Companies House data and Food Standards Agency data, all licensed under the Open Government Licence v3.0.";
   const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(",")), "", cell(note)].join("\n");
   const a = Object.assign(document.createElement("a"), {
