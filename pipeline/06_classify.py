@@ -14,7 +14,7 @@ import re
 
 import pandas as pd
 
-from config import INTERIM
+from config import CURATED, INTERIM
 from countries import OFFSHORE, to_iso
 
 STATE = re.compile(r"investment authority|sovereign|government of|ministry|public investment fund|"
@@ -100,6 +100,38 @@ def classify_chain(chain, end_reason):
     return name, c, "unknown", end_reason
 
 
+def load_controllers():
+    """data/curated/controllers.csv: a sourced, hand-checked controller for a UK company
+    that appears in chains (e.g. a fund manager's holding company, where the register
+    names the fund manager's founder as PSC). Applied to any chain passing through it."""
+    path = CURATED / "controllers.csv"
+    if not path.exists():
+        return {}
+    df = pd.read_csv(path, dtype=str).fillna("")
+    return {r["company_number"]: r for r in df.to_dict("records")}
+
+
+def person_key(name):
+    return re.sub(r"^(mr|mrs|ms|miss|dr|sir)\.? ", "", (name or "").strip().lower())
+
+
+def apply_controller(row, controllers):
+    chain = json.loads(row["chain"])
+    hit = next((controllers[s["company_number"]] for s in chain
+                if s.get("company_number") in controllers), None)
+    if not hit and chain:  # fall back to a named person at the end of the chain
+        hit = controllers.get("person:" + person_key(chain[-1].get("name")))
+    if not hit:
+        return row
+    chain.append({"name": hit["ultimate_owner"], "type": "curated-controller",
+                  "jurisdiction": hit["ultimate_country"], "note": hit["note"], "source": hit["source"]})
+    flags = [f for f in (row.get("flags") or "").split("|") if f] + ["curated_controller"]
+    flags += [f for f in hit["flags"].split("|") if f]
+    return {**row, "ultimate_owner": hit["ultimate_owner"], "ultimate_country": hit["ultimate_country"],
+            "owner_type": hit["owner_type"], "rule": "curated controller (sourced)",
+            "chain": json.dumps(chain), "flags": "|".join(dict.fromkeys(flags))}
+
+
 def main():
     rows = []
     # Merge the single-run file and any shard files; prefer a successful walk over an error.
@@ -164,10 +196,13 @@ def main():
                     flags.append("mixed_uk_foreign")
                 if len({x[1] for x in foreign}) > 1:
                     flags.append("multiple_foreign_countries")
-                    owner = "; ".join(x[0] for x in foreign)
+                # Name every non-UK beneficial owner, not just the first one listed.
+                owner = "; ".join(dict.fromkeys(x[0] for x in foreign if x[0])) or owner
             rows.append({"key": r["proprietor"], "kind": "proprietor", "ultimate_owner": owner,
                          "ultimate_country": c, "owner_type": t, "rule": "ROE: " + why,
                          "chain": json.dumps(chain), "flags": "|".join(flags)})
+    controllers = load_controllers()
+    rows = [apply_controller(r, controllers) for r in rows]
     df = pd.DataFrame(rows)
     df.to_csv(INTERIM / "classified.csv", index=False)
     if len(df):

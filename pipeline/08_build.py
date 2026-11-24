@@ -245,7 +245,9 @@ def hold_for_review(feats):
     approved = set(approved["ultimate_owner"]) if approved is not None and len(approved) else set()
     counts = {}
     for f in feats:
-        if f["owner_type"] == "individual" and f["property_type"] not in ("parking",):
+        # UK-controlled titles are dropped later anyway, so they need no review.
+        if (f["owner_type"] == "individual" and f["property_type"] not in ("parking",)
+                and f["ultimate_country"] != "UK"):
             counts[f["ultimate_owner"]] = counts.get(f["ultimate_owner"], 0) + 1
     held = {o for o, n in counts.items() if n > REVIEW_THRESHOLD and o not in approved}
     queue = [{"ultimate_owner": o, "titles": counts[o],

@@ -135,6 +135,7 @@ const FLAG_TEXT = {
   multiple_foreign_countries: "Non-UK owners from more than one country share control.",
   cycle: "The ownership records loop back on themselves; the chain stops where the loop begins.",
   max_hops: "The chain was stopped after eight steps.",
+  curated_controller: "The last step was added by hand from a published source (linked), because the register names a fund manager's founder rather than the funds.",
   inferred_ground_rent: "Probably a ground-rent interest: the owner holds the freeholds of many individual houses, which are usually sold to residents on long leases. The residents own their homes.",
 };
 function flagNote(flags) {
@@ -146,7 +147,7 @@ function openPanel(p) {
   const sourceLink = (s) => s ? ` <a href="${esc(s)}" target="_blank" rel="noopener">source</a>` : "";
   const chain = (p.chain || []).map((s) => `
     <li><div>${esc(s.name || s.company_number || "Unnamed entity")}${sourceLink(s.source)}</div>
-      <div class="j">${esc([s.jurisdiction && (s.jurisdiction.length === 2 ? countryName(s.jurisdiction) : s.jurisdiction), s.country_of_residence && `resident: ${s.country_of_residence}`, s.nationality && `nationality: ${s.nationality}`, s.company_number && `No. ${s.company_number}`].filter(Boolean).join(" · "))}</div></li>`).join("");
+      <div class="j">${esc([s.jurisdiction && (s.jurisdiction.length === 2 ? countryName(s.jurisdiction) : s.jurisdiction), s.country_of_residence && `resident: ${s.country_of_residence}`, s.nationality && `nationality: ${s.nationality}`, s.company_number && `No. ${s.company_number}`].filter(Boolean).join(" · "))}</div>${s.note ? `<div class="j">${esc(s.note)}</div>` : ""}</li>`).join("");
   const rows = [
     ["Registered owner", p.registered_owner ? `${esc(p.registered_owner)} <span class="j">(from the register)</span>` : "To be confirmed from Land Registry"],
     ["Ultimately controlled by", `${esc(p.ultimate_owner || "Not established")} <span class="j">(our reading of the chain)</span>`],
