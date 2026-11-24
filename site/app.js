@@ -14,12 +14,12 @@ const gbp = (n) => n ? "£" + Number(n).toLocaleString("en-GB") : null;
 
 // --- Kinds of place: each has its own marker shape --------------------------
 const KINDS = {
-  homes:       { label: "Homes & flats", shape: "square" },
-  hospitality: { label: "Hotels, pubs & restaurants", shape: "diamond" },
-  land:        { label: "Land & sites", shape: "triangle" },
-  other:       { label: "Offices, shops & other", shape: "circle" },
-  venue:       { label: "Food & drink firms", shape: "star" },
-  minor:       { label: "Parking & ground rents", shape: "ring" },
+  homes:       { label: "Homes and flats", shape: "square" },
+  hospitality: { label: "Hotels, pubs, restaurants", shape: "diamond" },
+  land:        { label: "Land and sites", shape: "triangle" },
+  other:       { label: "Offices, shops, other", shape: "circle" },
+  venue:       { label: "Food and drink firms", shape: "star" },
+  minor:       { label: "Parking, ground rents", shape: "ring" },
 };
 const kindOf = (p) => p.business_type ? "venue"
   : (p.parking_only || p.property_type === "parking" || p.property_type === "ground_rent") ? "minor"
