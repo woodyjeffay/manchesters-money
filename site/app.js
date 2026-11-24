@@ -34,7 +34,8 @@ const layer = L.markerClusterGroup({
   },
 }).addTo(map);
 
-const state = { country: "", type: "", ptype: "" };
+const state = { country: "", type: "", ptype: "", owner: "", parking: false };
+const ownerKey = (p) => p.ultimate_owner || p.registered_owner || p.name;
 let features = [];
 
 fetch("data/properties.geojson").then((r) => r.json()).then((gj) => {
@@ -59,15 +60,20 @@ const filters = { country: "f-country", type: "f-type", ptype: "f-ptype" };
 for (const [k, id] of Object.entries(filters)) {
   document.getElementById(id).addEventListener("change", (e) => { state[k] = e.target.value; render(); });
 }
+document.getElementById("f-parking").addEventListener("change", (e) => { state.parking = e.target.checked; render(); });
 document.getElementById("reset").addEventListener("click", () => {
   for (const [k, id] of Object.entries(filters)) { state[k] = ""; document.getElementById(id).value = ""; }
+  state.owner = ""; state.parking = false; document.getElementById("f-parking").checked = false;
   render();
 });
+function setOwner(o) { state.owner = o; render(); }
 
 function matches(p, skip) {
   return (skip === "country" || !state.country || (p.ultimate_country || "") === state.country)
     && (skip === "type" || !state.type || p.owner_type === state.type)
-    && (!state.ptype || p.property_type === state.ptype);
+    && (!state.ptype || p.property_type === state.ptype)
+    && (skip === "owner" || !state.owner || ownerKey(p) === state.owner)
+    && (state.parking || state.ptype === "parking" || !p.parking_only && !(p.property_type === "parking" && (p.title_count || 1) === 1));
 }
 
 function render() {
@@ -81,7 +87,12 @@ function render() {
       ownerType: p.owner_type,
     }).bindTooltip(esc(p.name)).on("click", () => openPanel(p)).addTo(layer);
   }
-  document.getElementById("shown").textContent = `${shown.length} of ${features.length} properties`;
+  const titles = shown.reduce((n, f) => n + (f.properties.title_count || 1), 0);
+  document.getElementById("shown").textContent = `${shown.length.toLocaleString()} locations · ${titles.toLocaleString()} titles`;
+  const chip = document.getElementById("owner-chip");
+  chip.hidden = !state.owner;
+  chip.innerHTML = state.owner ? `Owner: ${esc(state.owner)} <button type="button" aria-label="Clear owner filter">×</button>` : "";
+  if (state.owner) chip.querySelector("button").onclick = () => setOwner("");
   renderCounters();
 }
 
@@ -130,9 +141,12 @@ function openPanel(p) {
     ["Ultimately controlled by", `${esc(p.ultimate_owner || "Not established")} <span class="j">(our reading of the chain)</span>`],
     ["Country", esc(countryName(p.ultimate_country))],
     ["Owner type", `<span class="badge" style="background:${COLORS[p.owner_type]}">${TYPE_LABELS[p.owner_type] || p.owner_type}</span>`],
+    ...(p.title_count > 1 ? [["Titles", `${p.title_count} at this location`]] : []),
     ["Property type", esc(p.property_type)],
     ["Tenure", esc(p.tenure || "—")],
-    ["Price paid", gbp(p.price_paid) || "—"],
+    ["Price paid", p.title_count > 1
+      ? (p.price_paid ? `${gbp(p.price_paid)} <span class="j">(total for the ${p.price_paid_known} of ${p.title_count} titles with a price)</span>` : "—")
+      : gbp(p.price_paid) || "—"],
     ["Evidence", esc(p.evidence)],
     ["Last checked", esc(p.last_checked)],
   ];
@@ -145,11 +159,15 @@ function openPanel(p) {
     ${flagNote(p.flags)}
     <div class="label">Ownership chain</div>
     <ol class="chain">${chain || "<li>No chain recorded</li>"}</ol>
+    ${p.titles ? `<details class="titles"><summary>All ${p.titles.length} titles</summary><ul>${p.titles.map((t) =>
+      `<li><b>${esc(t.title)}</b> ${esc(t.address)}${t.price_paid ? ` · ${gbp(t.price_paid)}` : ""}</li>`).join("")}</ul></details>` : ""}
+    <p><button type="button" class="link-button" id="owner-this">Show everything owned by ${esc(ownerKey(p))}</button></p>
     ${p.notes ? `<div class="label">Notes</div><p class="note">${esc(p.notes)}</p>` : ""}
     <div class="label">Sources</div>
     <ol class="sources">${(p.sources || []).map((s) => `<li><a href="${esc(s)}" target="_blank" rel="noopener">${esc(s)}</a></li>`).join("")}</ol>
     <p><button type="button" class="link-button" id="suggest-this">Suggest a correction to this entry</button></p>`;
   document.getElementById("suggest-this").onclick = () => openCorrection(p);
+  document.getElementById("owner-this").onclick = () => setOwner(ownerKey(p));
   document.getElementById("panel").hidden = false;
 }
 document.getElementById("close").addEventListener("click", () => { document.getElementById("panel").hidden = true; });
@@ -192,4 +210,30 @@ form.addEventListener("submit", async (e) => {
     statusEl.textContent = `Sorry, that didn't send (${err.message}). Please try again.`;
     submit.disabled = false;
   }
+});
+
+// --- Top owners ------------------------------------------------------------
+document.getElementById("top-owners").addEventListener("click", () => {
+  const owners = {};
+  for (const f of features) {
+    const p = f.properties;
+    if (!matches(p, "owner")) continue;
+    const k = ownerKey(p);
+    const o = owners[k] ||= { name: k, country: p.ultimate_country, type: p.owner_type, titles: 0, locations: 0,
+                               registeredOnly: !p.ultimate_owner };
+    o.titles += p.title_count || 1;
+    o.locations += 1;
+  }
+  const rows = Object.values(owners).sort((a, b) => b.titles - a.titles).slice(0, 100);
+  document.getElementById("panel-body").innerHTML = `
+    <h2>Top owners</h2>
+    <p class="addr">By number of Land Registry titles, within the current filters. Click a name to show only their property.</p>
+    <table class="owners"><thead><tr><th>Owner</th><th>Country</th><th class="n">Titles</th></tr></thead><tbody>
+    ${rows.map((o) => `<tr><td><button type="button" class="link-button" data-owner="${esc(o.name)}">${esc(o.name)}</button>
+      ${o.registeredOnly ? '<div class="j">registered owner; controller not established</div>' : ""}
+      <div class="j"><span class="dot" style="background:${COLORS[o.type]}"></span> ${TYPE_LABELS[o.type] || o.type}</div></td>
+      <td>${esc(countryName(o.country))}</td><td class="n">${o.titles}</td></tr>`).join("")}
+    </tbody></table>`;
+  document.querySelectorAll("[data-owner]").forEach((b) => b.onclick = () => setOwner(b.dataset.owner));
+  document.getElementById("panel").hidden = false;
 });

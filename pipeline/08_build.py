@@ -64,7 +64,7 @@ def seed_features():
 
 PTYPE_RULES = [
     ("land", re.compile(r"^(?:the )?(?:land|site|plot)\b", re.I)),
-    ("other", re.compile(r"parking|garage|car park", re.I)),
+    ("parking", re.compile(r"parking|garage|car park|\bstorage\b|\bstore\b|bike store|cycle store", re.I)),
     ("hospitality", re.compile(r"hotel|\binn\b|public house|\bpub\b|restaurant|bar\b", re.I)),
     ("residential", re.compile(r"\bflat\b|apartment|\bhouse\b|cottage|maisonette|student", re.I)),
 ]
@@ -101,6 +101,7 @@ def register_features(postcodes):
             continue
         for r in df.to_dict("records"):
             owner = r.get("Proprietor Name (1)", "").strip()
+            title = r.get("Title Number")
             number = r.get("Company Registration No. (1)", "").strip().upper()
             number = number.zfill(8) if number.isdigit() else number
             if dataset == "ocod":
@@ -114,7 +115,6 @@ def register_features(postcodes):
                 c = by_key.get(number)
                 if not is_foreign(c):
                     continue
-            title = r.get("Title Number")
             pc = normalise_postcode(r.get("Postcode"))
             geo, precision = postcodes.get(pc), "postcode"
             if not geo and title in by_title:
@@ -148,6 +148,72 @@ def register_features(postcodes):
     return out
 
 
+UNIT_PREFIX = re.compile(
+    r"^(?:(?:the )?(?:flat|apartment|apt|unit|suite|room|studio|penthouse|duplex|townhouse|"
+    r"(?:car )?parking spaces?|space|bay|garage|store|storage|bike store|cycle store|level|floor|"
+    r"basement|lower ground floor|ground floor|first floor|second floor|third floor)"
+    r"\b[^,]*,\s*)+", re.I)
+
+
+def building_label(address):
+    """'Flat 12, Cotton Field Wharf, 4 Old Mill St, Manchester (M4 6EN)' -> 'Cotton Field Wharf, 4 Old Mill St'."""
+    a = UNIT_PREFIX.sub("", str(address or "")).strip(" ,")
+    parts = [p.strip() for p in a.split(",") if p.strip() and "manchester" not in p.lower()]
+    return ", ".join(parts[:2]) or str(address or "").split(",")[0]
+
+
+def group_by_building(feats):
+    """One pin per owner per location. Curated entries are never merged."""
+    groups, order = {}, []
+    for f in feats:
+        if f["evidence"] == "curated":
+            key = ("curated", f["id"])
+        else:
+            loc = f["postcode"] or (round(f["_lat"], 4), round(f["_lon"], 4))
+            key = (f["registered_owner"], f["ultimate_owner"], f["owner_type"], loc)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(f)
+
+    out = []
+    for key in order:
+        fs = groups[key]
+        if len(fs) == 1:
+            f = fs[0]
+            f["title_count"] = len(f["title_numbers"])
+            out.append(f)
+            continue
+        fs.sort(key=lambda f: f["title_numbers"][0])
+        types = [f["property_type"] for f in fs]
+        non_parking = [t for t in types if t != "parking"]
+        main_type = max(set(non_parking or types), key=(non_parking or types).count)
+        labels = [building_label(f["address"]) for f in fs]
+        label = max(set(labels), key=labels.count)
+        prices = [f["price_paid"] for f in fs if f["price_paid"]]
+        g = dict(fs[0])
+        g.update({
+            "id": fs[0]["id"],
+            "name": label,
+            "address": label,
+            "property_type": main_type,
+            "parking_only": not non_parking,
+            "tenure": fs[0]["tenure"] if len({f["tenure"] for f in fs}) == 1 else "mixed",
+            "title_numbers": [t for f in fs for t in f["title_numbers"]],
+            "title_count": sum(len(f["title_numbers"]) for f in fs),
+            "titles": [{"title": f["title_numbers"][0], "address": f["address"], "tenure": f["tenure"],
+                        "property_type": f["property_type"], "price_paid": f["price_paid"]} for f in fs],
+            "price_paid": sum(prices) if prices else None,
+            "price_paid_known": len(prices),
+            "geocode_precision": "postcode" if any(f["geocode_precision"] == "postcode" for f in fs)
+                                 else fs[0]["geocode_precision"],
+            "sources": sorted({s for f in fs for s in f["sources"]}, key=lambda s: (not s.startswith(HMLR_OCOD[:40]), s)),
+            "flags": sorted({x for f in fs for x in (f.get("flags") or [])}),
+        })
+        out.append(g)
+    return out
+
+
 def apply_overrides(feats):
     ov = read(CURATED / "overrides.csv")
     if ov is None or ov.empty:
@@ -166,7 +232,7 @@ def main():
     postcodes = {r["postcode"]: r for r in pcs.to_dict("records")} if pcs is not None else {}
     feats = apply_overrides(seed_features() + register_features(postcodes))
 
-    kept, dropped = [], []
+    candidates, dropped = [], []
     for f in feats:
         lat, lon = f.pop("lat"), f.pop("lon")
         if (not lat or not lon) and f["postcode"] in postcodes:
@@ -177,9 +243,17 @@ def main():
         if reason:
             dropped.append({"id": f["id"], "name": f["name"], "reason": reason})
             continue
+        f["_lat"], f["_lon"] = float(lat), float(lon)
+        candidates.append(f)
+
+    grouped = group_by_building(candidates)
+    kept = []
+    for f in grouped:
+        lat, lon = f.pop("_lat"), f.pop("_lon")
         kept.append({"type": "Feature",
-                     "geometry": {"type": "Point", "coordinates": [round(float(lon), 6), round(float(lat), 6)]},
+                     "geometry": {"type": "Point", "coordinates": [round(lon, 6), round(lat, 6)]},
                      "properties": f})
+    print(f"  {len(candidates):,} titles grouped into {len(kept):,} pins")
 
     dest = SITE_DATA / "properties.geojson"
     dest.write_text(json.dumps({"type": "FeatureCollection", "generated": TODAY, "features": kept}, indent=1))

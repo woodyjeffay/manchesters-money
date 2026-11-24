@@ -23,6 +23,15 @@ STATE = re.compile(r"investment authority|sovereign|government of|ministry|publi
 INSTITUTIONAL = re.compile(r"pension|insurance|assurance|asset management|investment management|"
                            r"real estate fund|reit|capital partners|fund\b|kapitalverwaltung|"
                            r"pensionskasse|superannuation", re.I)
+# Members of ruling families count as 'state' (README: "ruler-linked vehicles").
+# Deliberately narrow: formal royal styles or the ruling-family names of Gulf states.
+# 'Sheikh' alone is a common honorific and is NOT enough.
+RULER = re.compile(r"\b(his|her) (royal )?highness\b|\bH\.?R\.?H\b|"
+                   r"\bal[- ]?(nahyan|nahayan|maktoum|thani|saud|sabah|khalifa|qasimi|nuaimi|sharqi|mualla)\b",
+                   re.I)
+# Listed / public companies publish their shareholders, so a chain that ends at one
+# is not opaque even in an offshore jurisdiction.
+LISTED = re.compile(r"\bp\.?l\.?c\.?$|public limited company", re.I)
 
 
 def country(j):
@@ -36,11 +45,15 @@ def classify_chain(chain, end_reason):
     name = end.get("name") or ""
     if end.get("type") == "individual":
         c = country(end.get("country_of_residence")) or country(end.get("nationality"))
+        if RULER.search(name) and c != "UK":
+            return name, c, "state", "ruling-family member"
         return name, c, "individual", "PSC individual"
     c = country(end.get("jurisdiction"))
     if STATE.search(name):
         return name, c, "state", "name keyword (state)"
-    if c in OFFSHORE and end_reason == "foreign_entity":
+    legal_form = (end.get("legal_form") or "")
+    listed = LISTED.search(name.strip()) or re.search(r"public|listed", legal_form, re.I)
+    if c in OFFSHORE and end_reason == "foreign_entity" and not listed:
         return name, c, "unknown", "chain ends in offshore entity"
     if INSTITUTIONAL.search(name):
         return name, c, "institutional", "name keyword (institutional)"

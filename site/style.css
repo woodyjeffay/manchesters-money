@@ -63,3 +63,15 @@ dialog#correction::backdrop { background: rgba(20, 22, 26, 0.35); }
 #c-status { font-size: 13px; min-height: 1em; }
 .link-button { background: none; border: 0; padding: 0; color: var(--institutional); text-decoration: underline; cursor: pointer; font: inherit; font-size: 14px; }
 nav { font-size: 14px; }
+
+.check { display: inline-flex; align-items: center; gap: 4px; }
+.chip { background: var(--ink); color: #fff; border-radius: 999px; padding: 2px 4px 2px 10px; font-size: 12px; }
+.chip button { background: none; border: 0; color: #fff; cursor: pointer; font-size: 14px; }
+details.titles { font-size: 13px; margin: 10px 0; }
+details.titles summary { cursor: pointer; color: var(--institutional); }
+details.titles ul { padding-left: 16px; max-height: 260px; overflow-y: auto; }
+table.owners { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.owners th { text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--line); padding: 4px 2px; }
+table.owners td { border-bottom: 1px solid var(--line); padding: 6px 2px; vertical-align: top; }
+table.owners .n { text-align: right; font-variant-numeric: tabular-nums; }
+table.owners .link-button { font-size: 13px; text-align: left; }

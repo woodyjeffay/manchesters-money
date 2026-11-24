@@ -41,8 +41,17 @@ def main():
     out.to_csv(INTERIM / "ccod_manchester.csv", index=False)
     print(f"\nKept {len(out):,} titles -> {INTERIM / 'ccod_manchester.csv'}")
 
-    num_cols = [c for c in out.columns if c.startswith("Company Registration No")]
-    nums = pd.Series(pd.concat([out[c] for c in num_cols]).str.strip().str.upper())
+    # Only companies registered at Companies House can be walked. Registered societies,
+    # housing associations, co-operatives, local authorities and statutory corporate
+    # bodies are UK bodies with no Companies House record.
+    walkable = ("Limited Company or Public Limited Company", "Limited Liability Partnership",
+                "Unlimited Company")
+    nums = []
+    for i in range(1, 5):
+        num_col, cat_col = f"Company Registration No. ({i})", f"Proprietorship Category ({i})"
+        if num_col in out.columns:
+            nums.append(out.loc[out[cat_col].str.strip().isin(walkable), num_col])
+    nums = pd.Series(pd.concat(nums).str.strip().str.upper())
     nums = nums[nums != ""].drop_duplicates().sort_values()
     # Companies House numbers are 8 chars, zero-padded when purely numeric.
     nums = nums.map(lambda n: n.zfill(8) if n.isdigit() else n)
