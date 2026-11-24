@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manchester’s Money</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>Manchester’s Money</h1>
+      <p>Who ultimately owns and controls property in Manchester, from public registers.</p>
+    </div>
+    <nav><a href="methodology.html">Methodology</a></nav>
+  </header>
+
+  <section id="controls">
+    <div class="counter-row" id="type-counters" aria-label="Owner type"></div>
+    <div class="counter-row" id="country-counters" aria-label="Top countries"></div>
+    <div class="filters">
+      <label>Country <select id="f-country"><option value="">All</option></select></label>
+      <label>Owner type <select id="f-type"><option value="">All</option></select></label>
+      <label>Property type <select id="f-ptype"><option value="">All</option></select></label>
+      <button id="reset" type="button">Reset</button>
+      <span id="shown"></span>
+    </div>
+  </section>
+
+  <main>
+    <div id="map"></div>
+    <aside id="panel" hidden>
+      <button id="close" type="button" aria-label="Close">×</button>
+      <div id="panel-body"></div>
+    </aside>
+  </main>
+
+  <footer>
+    Contains HM Land Registry data © Crown copyright and database right 2026, licensed under the
+    <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">Open Government Licence v3.0</a>.
+    Contains Companies House data, Open Government Licence. Food Standards Agency data, OGL.
+    Postcode data via postcodes.io (contains OS data © Crown copyright). Map © OpenStreetMap contributors.
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

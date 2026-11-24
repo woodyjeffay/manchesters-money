@@ -1,0 +1,13 @@
+.env
+data/raw/
+data/cache/
+data/interim/
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+.vercel
+
+# Generated map data: kept out of the public repo until reviewed
+# (unreviewed ownership claims; names private individuals from the registers).
+site/data/properties.geojson
