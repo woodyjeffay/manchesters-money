@@ -63,6 +63,7 @@ def seed_features():
 
 
 PTYPE_RULES = [
+    ("ground_rent", re.compile(r"\bair ?space\b|ground rent|rent ?charge|freehold reversion|reversionary", re.I)),
     ("land", re.compile(r"^(?:the )?(?:land|site|plot)\b", re.I)),
     ("parking", re.compile(r"parking|garage|car park|\bstorage\b|\bstore\b|bike store|cycle store", re.I)),
     ("hospitality", re.compile(r"hotel|\binn\b|public house|\bpub\b|restaurant|bar\b", re.I)),
@@ -214,6 +215,54 @@ def group_by_building(feats):
     return out
 
 
+HOUSE = re.compile(r"^\d+[a-z]?\s+[A-Za-z]", re.I)
+REVIEW_THRESHOLD = 20  # individuals shown with more titles than this are held for review
+
+
+def mark_ground_rents(feats):
+    """A company holding many FREEHOLDS of single houses is almost certainly a ground-rent
+    investor (the homes themselves are sold on long leases). Mark these as inferred."""
+    by_owner = {}
+    for f in feats:
+        if f["evidence"] != "curated" and f["tenure"] == "freehold" and HOUSE.match(f["address"] or "") \
+                and f["property_type"] in ("residential", "other"):
+            by_owner.setdefault(f["registered_owner"], []).append(f)
+    n = 0
+    for owner, fs in by_owner.items():
+        if len(fs) >= 20:
+            for f in fs:
+                f["property_type"] = "ground_rent"
+                f.setdefault("flags", []).append("inferred_ground_rent")
+                n += 1
+    print(f"  {n:,} freehold house titles marked as likely ground rents")
+
+
+def hold_for_review(feats):
+    """Named individuals with many titles are usually trustees, nominees or fund principals.
+    Hold them back until approved in data/curated/approved_owners.csv."""
+    approved_path = CURATED / "approved_owners.csv"
+    approved = read(approved_path)
+    approved = set(approved["ultimate_owner"]) if approved is not None and len(approved) else set()
+    counts = {}
+    for f in feats:
+        if f["owner_type"] == "individual" and f["property_type"] not in ("parking",):
+            counts[f["ultimate_owner"]] = counts.get(f["ultimate_owner"], 0) + 1
+    held = {o for o, n in counts.items() if n > REVIEW_THRESHOLD and o not in approved}
+    queue = [{"ultimate_owner": o, "titles": counts[o],
+              "example_registered_owner": next(f["registered_owner"] for f in feats if f["ultimate_owner"] == o),
+              "example_chain": " -> ".join(s.get("name") or "" for s in
+                                           next(f["chain"] for f in feats if f["ultimate_owner"] == o))}
+             for o in sorted(held, key=lambda o: -counts[o])]
+    pd.DataFrame(queue, columns=["ultimate_owner", "titles", "example_registered_owner", "example_chain"]).to_csv(
+        CURATED / "review_queue.csv", index=False)
+    if not approved_path.exists():
+        pd.DataFrame(columns=["ultimate_owner", "decision", "reviewed_by", "date", "source"]).to_csv(
+            approved_path, index=False)
+    print(f"  {len(held)} individuals held for review ({sum(counts[o] for o in held):,} titles) "
+          f"-> data/curated/review_queue.csv")
+    return [f for f in feats if f["ultimate_owner"] not in held or f["owner_type"] != "individual"]
+
+
 def apply_overrides(feats):
     ov = read(CURATED / "overrides.csv")
     if ov is None or ov.empty:
@@ -231,6 +280,8 @@ def main():
     pcs = read(INTERIM / "postcodes.csv")
     postcodes = {r["postcode"]: r for r in pcs.to_dict("records")} if pcs is not None else {}
     feats = apply_overrides(seed_features() + register_features(postcodes))
+    mark_ground_rents(feats)
+    feats = hold_for_review(feats)
 
     candidates, dropped = [], []
     for f in feats:

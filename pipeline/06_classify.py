@@ -38,16 +38,54 @@ def country(j):
     return to_iso(j)
 
 
+OWNERSHIP = re.compile(r"ownership-of-shares|voting-rights|right-to-appoint|right-to-share-surplus-assets")
+
+
+def person_country(p):
+    return country(p.get("country_of_residence")) or country(p.get("nationality"))
+
+
+def classify_people(chain, end):
+    """End of chain is one or more individuals controlling the same company."""
+    people = end.get("people") or [end]
+    natures = [p.get("natures_of_control") or [] for p in people]
+    countries = [person_country(p) for p in people]
+    prev = chain[-2] if len(chain) > 1 else {}
+
+    # Trustees ('...-as-trust') or partners of a firm ('...-as-firm') act for others.
+    # The beneficiaries are not disclosed, so the real owner is unknown.
+    if natures and all(any(n.endswith(("-as-trust", "-as-firm")) for n in ns) for ns in natures):
+        if all(c == "UK" for c in countries):
+            return "Trust with UK trustees", "UK", "unknown", "trustees (UK)"
+        return f"Trust behind {prev.get('name') or 'this company'} (beneficiaries not disclosed)", None, "unknown", "trustees"
+
+    # 'Significant influence or control' with no shares, votes or appointment rights:
+    # a controller, not an owner. Name the company, not the person.
+    if natures and all(ns and not any(OWNERSHIP.search(n) for n in ns) for ns in natures):
+        if all(c == "UK" for c in countries):
+            return prev.get("name"), "UK", "unknown", "influence only (UK)"
+        return prev.get("name"), None, "unknown", "influence only, no ownership recorded"
+
+    # Joint owners: conservative. Any UK-based owner means we don't call it foreign.
+    if "UK" in countries or (None in countries and len(set(countries)) == 1):
+        return end.get("name"), "UK" if "UK" in countries else None, "individual", "PSC individual(s), UK involved"
+    c = countries[0]
+    names = end.get("name") or ""
+    if RULER.search(names):
+        return names, c, "state", "ruling-family member"
+    rule = "PSC individual" if len(people) == 1 else "joint PSC individuals"
+    if len(set(countries)) > 1:
+        rule += "; owners in several countries"
+    return names, c, "individual", rule
+
+
 def classify_chain(chain, end_reason):
     if not chain:
         return None, None, "unknown", "empty chain"
     end = chain[-1]
     name = end.get("name") or ""
-    if end.get("type") == "individual":
-        c = country(end.get("country_of_residence")) or country(end.get("nationality"))
-        if RULER.search(name) and c != "UK":
-            return name, c, "state", "ruling-family member"
-        return name, c, "individual", "PSC individual"
+    if end.get("type") in ("individual", "individuals"):
+        return classify_people(chain, end)
     c = country(end.get("jurisdiction"))
     if STATE.search(name):
         return name, c, "state", "name keyword (state)"
@@ -64,10 +102,20 @@ def classify_chain(chain, end_reason):
 
 def main():
     rows = []
-    path = INTERIM / "chains.jsonl"
-    if path.exists():
+    # Merge the single-run file and any shard files; prefer a successful walk over an error.
+    walked = {}
+    for path in [INTERIM / "chains.jsonl", *sorted(INTERIM.glob("chains.part*.jsonl"))]:
+        if not path.exists():
+            continue
         for line in path.open():
-            r = json.loads(line)
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if r["start"] not in walked or walked[r["start"]]["end_reason"] == "error":
+                walked[r["start"]] = r
+    for r in walked.values():
+        if True:
             owner, c, t, why = classify_chain(r["chain"], r["end_reason"])
             rows.append({"key": r["start"], "kind": "company", "ultimate_owner": owner,
                          "ultimate_country": c, "owner_type": t, "rule": why,
@@ -93,7 +141,8 @@ def main():
                         or (b.get("identification") or {}).get("place_registered")}
                 if "individual" in (b.get("kind") or ""):
                     step.update(type="individual", country_of_residence=b.get("country_of_residence"),
-                                nationality=b.get("nationality"))
+                                nationality=b.get("nationality"),
+                                natures_of_control=b.get("natures_of_control") or [])
                     chain = [head, step]
                     res = classify_chain(chain, "individual")
                 elif b.get("onward_chain"):

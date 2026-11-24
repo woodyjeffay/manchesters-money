@@ -11,3 +11,7 @@ __pycache__/
 # Generated map data: kept out of the public repo until reviewed
 # (unreviewed ownership claims; names private individuals from the registers).
 site/data/properties.geojson
+
+# Review queue names private individuals: keep it local, never in the public repo.
+data/curated/review_queue.csv
+data/curated/approved_owners.csv

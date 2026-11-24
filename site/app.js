@@ -12,7 +12,13 @@ const countryName = (c) => {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const gbp = (n) => n ? "£" + Number(n).toLocaleString("en-GB") : null;
 
-const map = L.map("map", { zoomControl: true, maxZoom: 19 }).setView([53.481, -2.235], 13);
+const map = L.map("map", {
+  zoomControl: true, maxZoom: 19, minZoom: 9,
+  maxBounds: [[53.20, -2.90], [53.75, -1.70]], maxBoundsViscosity: 0.8,
+}).setView([53.481, -2.235], 13);
+// If the page loads in a hidden tab the map measures 0x0; re-measure when it becomes visible.
+document.addEventListener("visibilitychange", () => { if (!document.hidden) map.invalidateSize(); });
+window.addEventListener("resize", () => map.invalidateSize());
 // OpenFreeMap: free vector tiles, no key, production use allowed (https://openfreemap.org).
 L.maplibreGL({
   style: "https://tiles.openfreemap.org/styles/positron",
@@ -35,6 +41,9 @@ const layer = L.markerClusterGroup({
 }).addTo(map);
 
 const state = { country: "", type: "", ptype: "", owner: "", parking: false };
+// Parking/storage and ground-rent interests are hidden unless asked for.
+const MINOR = new Set(["parking", "ground_rent"]);
+const isMinor = (p) => MINOR.has(p.property_type) || p.parking_only;
 const ownerKey = (p) => p.ultimate_owner || p.registered_owner || p.name;
 let features = [];
 
@@ -42,10 +51,11 @@ fetch("data/properties.geojson").then((r) => r.json()).then((gj) => {
   features = gj.features;
   fillSelect("f-country", unique((p) => p.ultimate_country || ""), countryName);
   fillSelect("f-type", Object.keys(TYPE_LABELS).filter((t) => features.some((f) => f.properties.owner_type === t)), (t) => TYPE_LABELS[t]);
-  fillSelect("f-ptype", unique((p) => p.property_type), (s) => s[0].toUpperCase() + s.slice(1));
+  fillSelect("f-ptype", unique((p) => p.property_type), (s) => (s[0].toUpperCase() + s.slice(1)).replace("_", " "));
   render();
   const b = L.latLngBounds(features.map((f) => [f.geometry.coordinates[1], f.geometry.coordinates[0]]));
-  if (b.isValid()) map.fitBounds(b.pad(0.15));
+  map.invalidateSize();
+  if (b.isValid() && map.getSize().x > 0) map.fitBounds(b.pad(0.05), { maxZoom: 14 });
 });
 
 function unique(fn) {
@@ -73,7 +83,7 @@ function matches(p, skip) {
     && (skip === "type" || !state.type || p.owner_type === state.type)
     && (!state.ptype || p.property_type === state.ptype)
     && (skip === "owner" || !state.owner || ownerKey(p) === state.owner)
-    && (state.parking || state.ptype === "parking" || !p.parking_only && !(p.property_type === "parking" && (p.title_count || 1) === 1));
+    && (state.parking || state.ptype === p.property_type || !isMinor(p));
 }
 
 function render() {
@@ -125,6 +135,7 @@ const FLAG_TEXT = {
   multiple_foreign_countries: "Non-UK owners from more than one country share control.",
   cycle: "The ownership records loop back on themselves; the chain stops where the loop begins.",
   max_hops: "The chain was stopped after eight steps.",
+  inferred_ground_rent: "Probably a ground-rent interest: the owner holds the freeholds of many individual houses, which are usually sold to residents on long leases. The residents own their homes.",
 };
 function flagNote(flags) {
   const lines = (flags || []).map((f) => FLAG_TEXT[f.split("@")[0]]).filter(Boolean);
@@ -142,7 +153,7 @@ function openPanel(p) {
     ["Country", esc(countryName(p.ultimate_country))],
     ["Owner type", `<span class="badge" style="background:${COLORS[p.owner_type]}">${TYPE_LABELS[p.owner_type] || p.owner_type}</span>`],
     ...(p.title_count > 1 ? [["Titles", `${p.title_count} at this location`]] : []),
-    ["Property type", esc(p.property_type)],
+    ["Property type", esc(String(p.property_type).replace("_", " "))],
     ["Tenure", esc(p.tenure || "—")],
     ["Price paid", p.title_count > 1
       ? (p.price_paid ? `${gbp(p.price_paid)} <span class="j">(total for the ${p.price_paid_known} of ${p.title_count} titles with a price)</span>` : "—")
