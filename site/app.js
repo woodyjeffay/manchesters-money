@@ -40,15 +40,35 @@ const layer = L.markerClusterGroup({
   },
 }).addTo(map);
 
-const state = { country: "", type: "", ptype: "", owner: "", parking: false };
+const state = { area: "", country: "", type: "", ptype: "", owner: "", parking: false, venues: false };
 // Parking/storage and ground-rent interests are hidden unless asked for.
 const MINOR = new Set(["parking", "ground_rent"]);
 const isMinor = (p) => MINOR.has(p.property_type) || p.parking_only;
 const ownerKey = (p) => p.ultimate_owner || p.registered_owner || p.name;
 let features = [];
+let venues = [];
+// Food & drink businesses sit in their own layer, drawn as squares, so they never mix with titles.
+const venueLayer = L.layerGroup().addTo(map);
+fetch("data/venues.geojson").then((r) => r.ok ? r.json() : { features: [] }).then((gj) => {
+  venues = gj.features;
+  document.getElementById("venues-toggle").hidden = !venues.length;  // only offer the layer once it has data
+  render();
+})
+  .catch(() => {});
 
 fetch("data/properties.geojson").then((r) => r.json()).then((gj) => {
   features = gj.features;
+  const m = gj.meta || {};
+  const month = (ym) => ym ? new Date(ym + "-01").toLocaleDateString("en-GB", { month: "long", year: "numeric" }) : null;
+  document.getElementById("updated").textContent = [
+    m.ocod && `Land Registry data: ${month(m.ocod)} release.`,
+    gj.generated && `Ownership chains checked ${new Date(gj.generated).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.`,
+  ].filter(Boolean).join(" ");
+  const areas = unique((p) => p.area || "").filter(Boolean);
+  fillSelect("f-area", areas, (a) => a);
+  document.getElementById("area-filter").hidden = areas.length < 2;
+  if (areas.length > 1) document.getElementById("tagline").textContent =
+    `Who ultimately owns and controls property in ${areas.slice(0, -1).join(", ")} and ${areas.at(-1)}, from public registers.`;
   fillSelect("f-country", unique((p) => p.ultimate_country || ""), countryName);
   fillSelect("f-type", Object.keys(TYPE_LABELS).filter((t) => features.some((f) => f.properties.owner_type === t)), (t) => TYPE_LABELS[t]);
   fillSelect("f-ptype", unique((p) => p.property_type), (s) => (s[0].toUpperCase() + s.slice(1)).replace("_", " "));
@@ -66,20 +86,23 @@ function fillSelect(id, values, label) {
   for (const v of values) el.insertAdjacentHTML("beforeend", `<option value="${esc(v)}">${esc(label(v))}</option>`);
 }
 
-const filters = { country: "f-country", type: "f-type", ptype: "f-ptype" };
+const filters = { area: "f-area", country: "f-country", type: "f-type", ptype: "f-ptype" };
 for (const [k, id] of Object.entries(filters)) {
   document.getElementById(id).addEventListener("change", (e) => { state[k] = e.target.value; render(); });
 }
 document.getElementById("f-parking").addEventListener("change", (e) => { state.parking = e.target.checked; render(); });
+document.getElementById("f-venues").addEventListener("change", (e) => { state.venues = e.target.checked; render(); });
 document.getElementById("reset").addEventListener("click", () => {
   for (const [k, id] of Object.entries(filters)) { state[k] = ""; document.getElementById(id).value = ""; }
   state.owner = ""; state.parking = false; document.getElementById("f-parking").checked = false;
+  state.venues = false; document.getElementById("f-venues").checked = false;
   render();
 });
 function setOwner(o) { state.owner = o; render(); }
 
 function matches(p, skip) {
-  return (skip === "country" || !state.country || (p.ultimate_country || "") === state.country)
+  return (!state.area || p.area === state.area)
+    && (skip === "country" || !state.country || (p.ultimate_country || "") === state.country)
     && (skip === "type" || !state.type || p.owner_type === state.type)
     && (!state.ptype || p.property_type === state.ptype)
     && (skip === "owner" || !state.owner || ownerKey(p) === state.owner)
@@ -97,13 +120,31 @@ function render() {
       ownerType: p.owner_type,
     }).bindTooltip(esc(p.name)).on("click", () => openPanel(p)).addTo(layer);
   }
+  venueLayer.clearLayers();
+  const shownVenues = state.venues ? venues.filter((f) => matchesVenue(f.properties)) : [];
+  for (const f of shownVenues) {
+    const p = f.properties;
+    const [lon, lat] = f.geometry.coordinates;
+    L.marker([lat, lon], {
+      icon: L.divIcon({ className: "venue", iconSize: [12, 12],
+        html: `<div style="border-color:${COLORS[p.owner_type] || COLORS.unknown}"></div>` }),
+    }).bindTooltip(`${esc(p.name)} · ${esc(p.business_type)}`).on("click", () => openPanel(p)).addTo(venueLayer);
+  }
   const titles = shown.reduce((n, f) => n + (f.properties.title_count || 1), 0);
-  document.getElementById("shown").textContent = `${shown.length.toLocaleString()} locations · ${titles.toLocaleString()} titles`;
+  document.getElementById("shown").textContent = `${shown.length.toLocaleString()} locations · ${titles.toLocaleString()} titles`
+    + (state.venues ? ` · ${shownVenues.length.toLocaleString()} businesses` : "");
   const chip = document.getElementById("owner-chip");
   chip.hidden = !state.owner;
   chip.innerHTML = state.owner ? `Owner: ${esc(state.owner)} <button type="button" aria-label="Clear owner filter">×</button>` : "";
   if (state.owner) chip.querySelector("button").onclick = () => setOwner("");
   renderCounters();
+}
+
+function matchesVenue(p) {
+  return (!state.area || p.area === state.area)
+    && (!state.country || (p.ultimate_country || "") === state.country)
+    && (!state.type || p.owner_type === state.type)
+    && (!state.owner || ownerKey(p) === state.owner);
 }
 
 function renderCounters() {
@@ -136,6 +177,9 @@ const FLAG_TEXT = {
   cycle: "The ownership records loop back on themselves; the chain stops where the loop begins.",
   max_hops: "The chain was stopped after eight steps.",
   curated_controller: "The last step was added by hand from a published source (linked), because the register names a fund manager's founder rather than the funds.",
+  venue_office_match: "Operator found by name: a company with exactly this trading name has its registered office at this address.",
+  venue_name_match: "Operator found by name only: it is the one active company with exactly this name. The hygiene register does not record who runs a business, so this is our reading, not a registered fact.",
+  venue_brand: "This company trades at three or more places in the area. Some branches of a brand may be run by franchisees, not by the company shown.",
   inferred_ground_rent: "Probably a ground-rent interest: the owner holds the freeholds of many individual houses, which are usually sold to residents on long leases. The residents own their homes.",
 };
 function flagNote(flags) {
@@ -148,7 +192,15 @@ function openPanel(p) {
   const chain = (p.chain || []).map((s) => `
     <li><div>${esc(s.name || s.company_number || "Unnamed entity")}${sourceLink(s.source)}</div>
       <div class="j">${esc([s.jurisdiction && (s.jurisdiction.length === 2 ? countryName(s.jurisdiction) : s.jurisdiction), s.country_of_residence && `resident: ${s.country_of_residence}`, s.nationality && `nationality: ${s.nationality}`, s.company_number && `No. ${s.company_number}`].filter(Boolean).join(" · "))}</div>${s.note ? `<div class="j">${esc(s.note)}</div>` : ""}</li>`).join("");
-  const rows = [
+  const venue = !!p.business_type;
+  const rows = venue ? [
+    ["Business", esc(p.business_type)],
+    ["Operator", `${esc(p.operator)} <span class="j">(matched by name; see note)</span>`],
+    ["Ultimately controlled by", `${esc(p.ultimate_owner || "Not established")} <span class="j">(our reading of the chain)</span>`],
+    ["Country", esc(countryName(p.ultimate_country))],
+    ["Owner type", `<span class="badge" style="background:${COLORS[p.owner_type]}">${TYPE_LABELS[p.owner_type] || p.owner_type}</span>`],
+    ["Hygiene rating", esc([p.rating, p.rating_date && `(inspected ${p.rating_date})`].filter(Boolean).join(" ") || "—")],
+  ] : [
     ["Registered owner", p.registered_owner ? `${esc(p.registered_owner)} <span class="j">(from the register)</span>` : "To be confirmed from Land Registry"],
     ["Ultimately controlled by", `${esc(p.ultimate_owner || "Not established")} <span class="j">(our reading of the chain)</span>`],
     ["Country", esc(countryName(p.ultimate_country))],
@@ -173,6 +225,7 @@ function openPanel(p) {
     <ol class="chain">${chain || "<li>No chain recorded</li>"}</ol>
     ${p.titles ? `<details class="titles"><summary>All ${p.titles.length} titles</summary><ul>${p.titles.map((t) =>
       `<li><b>${esc(t.title)}</b> ${esc(t.address)}${t.price_paid ? ` · ${gbp(t.price_paid)}` : ""}</li>`).join("")}</ul></details>` : ""}
+    ${venue ? '<p class="note">This is a business, not a property title: the operator may rent the premises.</p>' : ""}
     <p><button type="button" class="link-button" id="owner-this">Show everything owned by ${esc(ownerKey(p))}</button></p>
     ${p.notes ? `<div class="label">Notes</div><p class="note">${esc(p.notes)}</p>` : ""}
     <div class="label">Sources</div>
@@ -248,4 +301,21 @@ document.getElementById("top-owners").addEventListener("click", () => {
     </tbody></table>`;
   document.querySelectorAll("[data-owner]").forEach((b) => b.onclick = () => setOwner(b.dataset.owner));
   document.getElementById("panel").hidden = false;
+});
+
+// --- CSV download of what is on screen ---------------------------------------
+document.getElementById("download").addEventListener("click", () => {
+  const cols = ["id", "kind", "name", "address", "postcode", "area", "registered_owner", "ultimate_owner",
+    "ultimate_country", "owner_type", "property_type", "title_count", "title_numbers", "evidence", "sources"];
+  const cell = (v) => { const s = Array.isArray(v) ? v.join(" | ") : String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const rows = features.filter((f) => matches(f.properties)).map((f) => ({ ...f.properties, kind: "property",
+    title_count: f.properties.title_count || 1 }));
+  if (state.venues) rows.push(...venues.filter((f) => matchesVenue(f.properties)).map((f) => ({ ...f.properties,
+    kind: "business", registered_owner: f.properties.operator, property_type: f.properties.business_type, evidence: "name match" })));
+  const note = "Contains HM Land Registry data (c) Crown copyright and database right 2026, Companies House data and Food Standards Agency data, all licensed under the Open Government Licence v3.0.";
+  const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(",")), "", cell(note)].join("\n");
+  const a = Object.assign(document.createElement("a"), {
+    href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: "manchesters-money.csv" });
+  a.click();
+  URL.revokeObjectURL(a.href);
 });

@@ -100,7 +100,7 @@ def clean_address(addr):
             break
         a = a2
     a = re.sub(r"\b(\d+)\s+to\s+\d+\s*(\((?:odd|even)\))?", r"\1", a, flags=re.I)
-    if "manchester" not in a.lower():
+    if not re.search(r"manchester|salford", a, re.I):
         a += ", Manchester"
     return a
 
@@ -109,7 +109,7 @@ def nominatim(q):
     status, data = cached_get_json(
         "https://nominatim.openstreetmap.org/search", namespace="nominatim",
         params={"q": q, "format": "jsonv2", "limit": 1, "countrycodes": "gb",
-                "viewbox": "-2.32,53.55,-2.14,53.34", "bounded": 1},
+                "viewbox": "-2.50,53.55,-2.14,53.34", "bounded": 1},
         min_interval=1.1)
     return data[0] if status == 200 and data else None
 
@@ -120,7 +120,7 @@ def geocode_addresses():
         if not path.exists():
             continue
         df = pd.read_csv(path, dtype=str, keep_default_na=False,
-                         usecols=["Title Number", "Property Address", "Postcode"])
+                         usecols=["Title Number", "Property Address", "Postcode", "District"])
         todo = df[df["Postcode"].str.strip() == ""]
         if path.name.startswith("ccod"):
             # CCOD is huge; only geocode CCOD titles once we know they're foreign-controlled.
@@ -131,11 +131,12 @@ def geocode_addresses():
         print(f"  {path.name}: {len(todo):,} titles without postcode -> address geocoding")
         for r in todo.itertuples():
             q = clean_address(r[2])
+            town = (r[4] or "Manchester").strip().title()
             hit = nominatim(q)
             precision = "address"
             if not hit:  # retry with just the street + Manchester
                 street = re.sub(r"^[\d\w-]*\d[\w-]*\s+", "", q.split(",")[0]).strip()
-                hit = nominatim(f"{street}, Manchester") if street else None
+                hit = nominatim(f"{street}, {town}") if street else None
                 precision = "street"
             out.append({"title_number": r[1], "query": q,
                         "lat": hit["lat"] if hit else None, "lon": hit["lon"] if hit else None,

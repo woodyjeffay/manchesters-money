@@ -4,10 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Methodology · Manchester’s Money</title>
-  <link rel="stylesheet" href="style.css">
-  <style>body { display: block; }</style>
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
-<body>
+<body class="page">
   <header>
     <div class="brand"><h1>Manchester’s Money</h1><p>Methodology</p></div>
     <nav><a href="/">Map</a></nav>
@@ -15,7 +14,7 @@
   <article class="method">
 
     <h2>What the map shows</h2>
-    <p>Property in the Manchester City Council area whose ultimate controller, as far as public records show, is outside the United Kingdom. It also shows property where the ownership chain ends in an entity whose owners are not disclosed; these are marked “unknown”.</p>
+    <p>Property in the Manchester City Council area (Salford is being added) whose ultimate controller, as far as public records show, is outside the United Kingdom. It also shows property where the ownership chain ends in an entity whose owners are not disclosed; these are marked “unknown”.</p>
     <p>“Foreign” refers to the <em>ultimate</em> controller, not the company on the title. A Jersey company owned by a UK resident is not counted as foreign. A UK company owned by an overseas fund is.</p>
 
     <h2>Registered owner and ultimate controller</h2>
@@ -27,7 +26,7 @@
 
     <h2>How chains are built</h2>
     <ol>
-      <li>We take every title in the Manchester City Council area from the Land Registry’s datasets of property owned by overseas companies (OCOD) and by UK companies (CCOD).</li>
+      <li>We take every title in the council areas covered from the Land Registry’s datasets of property owned by overseas companies (OCOD) and by UK companies (CCOD).</li>
       <li>For an overseas company, we find its entry in the Register of Overseas Entities at Companies House and read its registered beneficial owners.</li>
       <li>For a UK company, we read its “persons with significant control” (PSC) at Companies House. Where the controller is another UK company, we follow that company’s PSCs in turn.</li>
       <li>We stop at a named individual, a state or government body, an overseas company with no further UK record, or after eight steps. Loops and dead ends are flagged, not guessed past.</li>
@@ -46,6 +45,10 @@
 
     <h2>Hand-curated entries</h2>
     <p>Some holdings are not visible in the registers, for example where property is held through joint ventures or long leases. These are added by hand from published sources such as company announcements, council documents, academic research and the property press. Each carries at least one source link and is marked “curated”. Entries still being checked are marked “awaiting review”.</p>
+
+    <h2>Food and drink businesses</h2>
+    <p>An optional layer shows restaurants, cafés, takeaways, pubs, hotels and supermarkets from the Food Standards Agency’s hygiene register whose operating company is controlled from outside the UK. The hygiene register records a trading name, not the company that runs the business, so we search Companies House for that name. We only accept a company whose name is exactly the trading name once words like “Limited” are removed, and only if it is the one active company with that name, or its registered office is at the business’s address. The panel says which.</p>
+    <p>These are businesses, not property: the operator may rent its premises from someone else. Where one company trades at several places, some branches of the brand may be run by franchisees.</p>
 
     <h2>Locations</h2>
     <p>Properties are placed using their postcode (via postcodes.io). Where the register gives no postcode, the address is located using OpenStreetMap and the entry is marked as approximate. Titles that cannot be placed are not shown.</p>

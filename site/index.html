@@ -7,31 +7,49 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
-  <header>
+  <aside id="sidebar">
     <div class="brand">
       <h1>Manchester’s Money</h1>
-      <p>Who ultimately owns and controls property in Manchester, from public registers.</p>
+      <p id="tagline">Who ultimately owns and controls property in Manchester, from public registers.</p>
+      <nav><a href="methodology.html">Methodology</a> · <a href="#" id="suggest-general">Suggest a correction</a></nav>
     </div>
-    <nav><a href="#" id="suggest-general">Suggest a correction</a> · <a href="methodology.html">Methodology</a></nav>
-  </header>
 
-  <section id="controls">
-    <div class="counter-row" id="type-counters" aria-label="Owner type"></div>
-    <div class="counter-row" id="country-counters" aria-label="Top countries"></div>
-    <div class="filters">
-      <label>Country <select id="f-country"><option value="">All</option></select></label>
-      <label>Owner type <select id="f-type"><option value="">All</option></select></label>
-      <label>Property type <select id="f-ptype"><option value="">All</option></select></label>
-      <label class="check"><input type="checkbox" id="f-parking"> Include parking, storage &amp; ground rents</label>
-      <button id="reset" type="button">Reset</button>
-      <button id="top-owners" type="button">Top owners</button>
+    <details id="controls" open>
+      <summary>Filters</summary>
+      <p id="shown" class="shown"></p>
       <span id="owner-chip" class="chip" hidden></span>
-      <span id="shown"></span>
-    </div>
-  </section>
+
+      <h2 class="label">Owner type</h2>
+      <div class="counter-row" id="type-counters" aria-label="Owner type"></div>
+      <h2 class="label">Top countries</h2>
+      <div class="counter-row" id="country-counters" aria-label="Top countries"></div>
+
+      <div class="filters">
+        <label id="area-filter" hidden>Area <select id="f-area"><option value="">All</option></select></label>
+        <label>Country <select id="f-country"><option value="">All</option></select></label>
+        <label>Owner type <select id="f-type"><option value="">All</option></select></label>
+        <label>Property type <select id="f-ptype"><option value="">All</option></select></label>
+        <label class="check"><input type="checkbox" id="f-parking"> Include parking, storage &amp; ground rents</label>
+        <label class="check" id="venues-toggle" hidden><input type="checkbox" id="f-venues"> Show food &amp; drink businesses <span class="sq"></span></label>
+      </div>
+      <div class="buttons">
+        <button id="top-owners" type="button">Top owners</button>
+        <button id="download" type="button">Download CSV</button>
+        <button id="reset" type="button">Reset</button>
+      </div>
+    </details>
+
+    <footer>
+      <p id="updated"></p>
+      Contains HM Land Registry data © Crown copyright and database right 2026, licensed under the
+      <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">Open Government Licence v3.0</a>.
+      Contains Companies House data, Open Government Licence. Food Standards Agency data, OGL.
+      Postcode data via postcodes.io (contains OS data © Crown copyright). Map: OpenFreeMap, OpenMapTiles, © OpenStreetMap contributors.
+    </footer>
+  </aside>
 
   <main>
     <div id="map"></div>
@@ -63,17 +81,11 @@
     </form>
   </dialog>
 
-  <footer>
-    Contains HM Land Registry data © Crown copyright and database right 2026, licensed under the
-    <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">Open Government Licence v3.0</a>.
-    Contains Companies House data, Open Government Licence. Food Standards Agency data, OGL.
-    Postcode data via postcodes.io (contains OS data © Crown copyright). Map: OpenFreeMap, OpenMapTiles, © OpenStreetMap contributors.
-  </footer>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

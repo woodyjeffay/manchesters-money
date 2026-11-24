@@ -12,6 +12,7 @@ All API responses are cached in data/cache/ch/.
 import json
 import os
 import re
+import threading
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -33,8 +34,12 @@ MAX_HOPS = 8
 MIN_INTERVAL = 0.55
 
 
+_local = threading.local()  # lets threads walk with their own key: chains._local.key = ...
+
+
 def ch(path):
-    return cached_get_json(API + path, namespace="ch", auth=(KEY, ""), min_interval=MIN_INTERVAL)
+    key = getattr(_local, "key", None) or KEY
+    return cached_get_json(API + path, namespace="ch", auth=(key, ""), min_interval=MIN_INTERVAL)
 
 
 UK_REGISTERS = re.compile(r"companies house|registrar of companies|england|wales|scotland|united kingdom", re.I)

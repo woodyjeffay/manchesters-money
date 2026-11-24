@@ -5,13 +5,14 @@ Keeps only foreign-controlled properties (plus 'unknown'). Every feature must
 carry at least one source; rows without a source or coordinates are dropped
 and listed in data/interim/build_dropped.csv.
 """
+import importlib
 import json
 import re
 from datetime import date
 
 import pandas as pd
 
-from common import normalise_postcode
+from common import find_raw_csv, normalise_postcode
 from config import CURATED, INTERIM, SITE_DATA
 from countries import to_iso
 
@@ -58,6 +59,7 @@ def seed_features():
             "last_checked": r["last_checked"] or TODAY,
             "review_status": r.get("review_status") or None,
             "notes": r.get("notes") or None,
+            "area": r.get("area") or "Manchester",
         })
     return out
 
@@ -135,6 +137,7 @@ def register_features(postcodes):
                 "property_type": guess_ptype(r.get("Property Address")),
                 "tenure": tenure(r.get("Tenure")), "title_numbers": [title],
                 "registered_owner": owner, "registered_owner_jurisdiction": juris,
+                "area": (r.get("District") or "").strip().title() or None,
                 "ultimate_owner": (c or {}).get("ultimate_owner") or None,
                 "ultimate_country": (c or {}).get("ultimate_country") or None,
                 "owner_type": (c or {}).get("owner_type") or "unknown",
@@ -282,6 +285,9 @@ def main():
     pcs = read(INTERIM / "postcodes.csv")
     postcodes = {r["postcode"]: r for r in pcs.to_dict("records")} if pcs is not None else {}
     feats = apply_overrides(seed_features() + register_features(postcodes))
+    # Step 3 only address-geocodes CCOD titles on this list (CCOD is too big to geocode whole).
+    pd.DataFrame({"title_number": sorted({t for f in feats for t in f["title_numbers"]})}).to_csv(
+        INTERIM / "foreign_titles.csv", index=False)
     mark_ground_rents(feats)
     feats = hold_for_review(feats)
 
@@ -309,11 +315,84 @@ def main():
     print(f"  {len(candidates):,} titles grouped into {len(kept):,} pins")
 
     dest = SITE_DATA / "properties.geojson"
-    dest.write_text(json.dumps({"type": "FeatureCollection", "generated": TODAY, "features": kept}, indent=1))
+    dest.write_text(json.dumps({"type": "FeatureCollection", "generated": TODAY, "meta": release_meta(),
+                                "features": kept}, indent=1))
+    build_venues(postcodes)
     pd.DataFrame(dropped, columns=["id", "name", "reason"]).to_csv(INTERIM / "build_dropped.csv", index=False)
     print(f"{len(kept)} features -> {dest}; {len(dropped)} dropped (see {INTERIM / 'build_dropped.csv'})")
     for d in dropped[:20]:
         print(f"  dropped {d['id']} {d['name']}: {d['reason']}")
+
+
+def release_meta():
+    """Which register releases the map was built from, for the 'data updated' line."""
+    meta = {"built": TODAY}
+    for prefix in ("OCOD", "CCOD"):
+        try:
+            m = re.search(r"(\d{4})_(\d{2})", find_raw_csv(prefix).name)
+            meta[prefix.lower()] = f"{m.group(1)}-{m.group(2)}" if m else None
+        except SystemExit:
+            meta[prefix.lower()] = None
+    return meta
+
+
+FSA_TYPES = {"Restaurant/Cafe/Canteen": "Restaurant or café", "Takeaway/sandwich shop": "Takeaway",
+             "Pub/bar/nightclub": "Pub, bar or club", "Hotel/bed & breakfast/guest house": "Hotel",
+             "Retailers - supermarkets/hypermarkets": "Supermarket"}
+
+
+def build_venues(postcodes):
+    """Food & drink businesses whose operator (matched by exact name in step 7) is
+    controlled from outside the UK -> site/data/venues.geojson."""
+    m, chains_path = read(INTERIM / "fsa_matches.csv"), INTERIM / "fsa_chains.jsonl"
+    if m is None or not chains_path.exists():
+        print("  no food matches yet (run 07_food.py --match)")
+        return
+    classify = importlib.import_module("06_classify")
+    controllers = classify.load_controllers()
+    by_num = {}
+    for line in chains_path.open():
+        r = json.loads(line)
+        owner, c, t, why = classify.classify_chain(r["chain"], r["end_reason"])
+        row = {"ultimate_owner": owner, "ultimate_country": c, "owner_type": t, "rule": why,
+               "chain": json.dumps(r["chain"]), "flags": "|".join(r["flags"])}
+        by_num[r["start"]] = classify.apply_controller(row, controllers)
+    m = m[m["company_number"].astype(str).str.len() > 0]
+    branches = m["company_number"].value_counts()
+    feats = []
+    for r in m.to_dict("records"):
+        c = by_num.get(r["company_number"])
+        if not is_foreign(c):
+            continue
+        lat, lon = r.get("lat"), r.get("lon")
+        pc = normalise_postcode(r.get("postcode"))
+        if (not lat or not lon) and pc in postcodes:
+            lat, lon = postcodes[pc]["lat"], postcodes[pc]["lon"]
+        if not lat or not lon:
+            continue
+        flags = [f for f in (c.get("flags") or "").split("|") if f]
+        flags.append("venue_office_match" if r["match_confidence"] == "high" else "venue_name_match")
+        if branches[r["company_number"]] >= 3:
+            flags.append("venue_brand")
+        first = {"name": r["company_name"], "company_number": r["company_number"], "type": "operator",
+                 "jurisdiction": "UK", "source": "https://find-and-update.company-information.service.gov.uk/company/"
+                 + r["company_number"]}
+        chain = [first] + [s for s in json.loads(c["chain"]) if s.get("company_number") != r["company_number"]]
+        feats.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [round(float(lon), 6), round(float(lat), 6)]},
+                      "properties": {
+                          "id": f"FSA-{r['fhrs_id']}", "name": r["business_name"],
+                          "business_type": FSA_TYPES.get(r["business_type"], r["business_type"]),
+                          "address": r.get("address"), "postcode": pc, "area": r.get("authority"),
+                          "rating": r.get("rating"), "rating_date": (r.get("rating_date") or "")[:10] or None,
+                          "operator": r["company_name"], "operator_number": r["company_number"],
+                          "match_confidence": r["match_confidence"],
+                          "ultimate_owner": c["ultimate_owner"], "ultimate_country": c["ultimate_country"],
+                          "owner_type": c["owner_type"], "chain": chain, "flags": flags,
+                          "sources": [r["source"]] + sorted({s["source"] for s in chain if s.get("source")}),
+                      }})
+    dest = SITE_DATA / "venues.geojson"
+    dest.write_text(json.dumps({"type": "FeatureCollection", "generated": TODAY, "features": feats}, indent=1))
+    print(f"  {len(feats):,} food & drink businesses with a non-UK controller -> {dest}")
 
 
 if __name__ == "__main__":

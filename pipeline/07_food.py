@@ -58,43 +58,101 @@ def fetch_establishments():
     return pd.DataFrame(rows)
 
 
-SUFFIXES = re.compile(r"\b(limited|ltd|plc|llp|uk|the|restaurant|cafe|bar|group)\b")
+# Only places people eat, drink, stay or shop for food. Schools, care homes, mobile
+# caterers and wholesalers are left out.
+VENUE_TYPES = ["Restaurant/Cafe/Canteen", "Takeaway/sandwich shop", "Pub/bar/nightclub",
+               "Hotel/bed & breakfast/guest house", "Retailers - supermarkets/hypermarkets"]
+SUFFIXES = re.compile(r"\b(limited|ltd|plc|llp|the|co|company)\b")
 
 
 def norm(s):
-    s = re.sub(r"[^a-z0-9 ]", " ", str(s).lower())
+    s = re.sub(r"[^a-z0-9 ]", "", str(s).lower().replace("&", " and "))
     return " ".join(SUFFIXES.sub(" ", s).split())
 
 
-def match_companies(df):
+def keys():
     from dotenv import load_dotenv
-    from rapidfuzz import fuzz
     load_dotenv()
-    key = (os.environ.get("COMPANIES_HOUSE_API_KEY") or "").strip()
-    if not key:
+    ks = [k for k in ((os.environ.get(v) or "").strip() for v in
+          ("COMPANIES_HOUSE_API_KEY", "COMPANIES_HOUSE_API_KEY_2", "COMPANIES_HOUSE_API_KEY_3")) if k]
+    if not ks:
         raise SystemExit("Set COMPANIES_HOUSE_API_KEY in .env to run --match")
+    return ks
 
-    out = []
-    for r in df.itertuples():
-        _, data = cached_get_json(f"{CH}/search/companies", namespace="ch_search",
-                                  params={"q": r.business_name, "items_per_page": 10},
-                                  auth=(key, ""), min_interval=0.5)
-        best, best_score = None, 0
-        for item in (data or {}).get("items", []):
-            if item.get("company_status") not in ("active", None):
-                continue
-            score = fuzz.token_sort_ratio(norm(r.business_name), norm(item["title"]))
-            addr_pc = (item.get("address") or {}).get("postal_code", "")
-            if r.postcode and addr_pc.replace(" ", "").upper() == str(r.postcode).replace(" ", "").upper():
-                score += 15  # registered office at the premises is a strong signal
-            if score > best_score:
-                best, best_score = item, score
-        conf = "high" if best_score >= 100 else "medium" if best_score >= 90 else "low"
-        out.append({"fhrs_id": r.fhrs_id,
-                    "company_number": best["company_number"] if best else None,
-                    "company_name": best["title"] if best else None,
-                    "match_score": best_score, "match_confidence": conf if best else None})
-    return df.merge(pd.DataFrame(out), on="fhrs_id", how="left")
+
+def best_match(name, postcodes, key):
+    """Never guess: the company name must equal the trading name once 'Ltd' etc. are
+    removed. 'high' = its registered office is also at one of the venue postcodes;
+    'name_only' = an exact name match and the only active company with that name."""
+    _, data = cached_get_json(f"{CH}/search/companies", namespace="ch_search",
+                              params={"q": name, "items_per_page": 20},
+                              auth=(key, ""), min_interval=0.55)
+    exact = [i for i in (data or {}).get("items", [])
+             if i.get("company_status") == "active" and norm(i.get("title")) == norm(name)]
+    for i in exact:
+        pc = ((i.get("address") or {}).get("postal_code") or "").replace(" ", "").upper()
+        if pc and pc in postcodes:
+            return i, "high"
+    if len(exact) == 1:
+        return exact[0], "name_only"
+    return None, None
+
+
+def match_companies(df):
+    from concurrent.futures import ThreadPoolExecutor
+    ks = keys()
+    venues = df[df["business_type"].isin(VENUE_TYPES)].copy()
+    venues["n"] = venues["business_name"].map(norm)
+    groups = {n: set(g["postcode"].dropna().str.replace(" ", "").str.upper())
+              for n, g in venues.groupby("n") if n}
+    names = sorted(groups)
+    first_name = venues.groupby("n")["business_name"].first()
+
+    def run(shard):
+        out = []
+        for j, n in enumerate(names[shard::len(ks)], 1):
+            item, conf = best_match(first_name[n], groups[n], ks[shard])
+            if item:
+                out.append({"n": n, "company_number": item["company_number"],
+                            "company_name": item["title"], "match_confidence": conf})
+            if j % 250 == 0:
+                print(f"  key {shard + 1}: {j:,} names searched", flush=True)
+        return out
+
+    with ThreadPoolExecutor(len(ks)) as ex:
+        found = [r for part in ex.map(run, range(len(ks))) for r in part]
+    m = pd.DataFrame(found, columns=["n", "company_number", "company_name", "match_confidence"])
+    print(f"{len(names):,} venue names searched; {len(m):,} matched "
+          f"({(m['match_confidence'] == 'high').sum():,} with registered office at the venue)")
+    return venues.merge(m, on="n", how="left").drop(columns="n")
+
+
+def walk_matches(m):
+    """Walk the PSC chain of every matched company -> data/interim/fsa_chains.jsonl."""
+    import importlib
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+    chains = importlib.import_module("04_chains")
+    ks = keys()
+    nums = sorted(set(m["company_number"].dropna()))
+
+    def run(shard):
+        chains._local.key = ks[shard]
+        out = []
+        for n in nums[shard::len(ks)]:
+            try:
+                chain, reason, flags = chains.walk(n)
+            except Exception as e:
+                chain, reason, flags = [], "error", [repr(e)]
+            out.append({"start": n, "chain": chain, "end_reason": reason, "flags": flags})
+        return out
+
+    with ThreadPoolExecutor(len(ks)) as ex:
+        rows = [r for part in ex.map(run, range(len(ks))) for r in part]
+    with open(INTERIM / "fsa_chains.jsonl", "w") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+    print(f"{len(rows):,} matched companies walked -> fsa_chains.jsonl")
 
 
 def main():
@@ -112,6 +170,7 @@ def main():
         m = match_companies(df)
         m.to_csv(INTERIM / "fsa_matches.csv", index=False)
         print(m["match_confidence"].value_counts(dropna=False).to_string())
+        walk_matches(m)
 
 
 if __name__ == "__main__":
