@@ -249,7 +249,7 @@ const FLAG_TEXT = {
   multiple_foreign_countries: "The owners are based in more than one country.",
   cycle: "The company records loop back on themselves.",
   max_hops: "The chain was cut off after eight companies.",
-  curated_controller: "The last link is added by us from the published source shown, because the register names a fund manager's founder.",
+  curated_controller: "We added the last link from the published source shown, because the register alone does not name the controller.",
   venue_office_match: "Operator matched by name and registered address.",
   venue_name_match: "Operator matched by name only. The hygiene register doesn't say who runs a business.",
   venue_brand: "Branches of this brand may be run by franchisees.",

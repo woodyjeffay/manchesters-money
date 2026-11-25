@@ -16,10 +16,10 @@ SITE_DATA = ROOT / "site" / "data"
 
 # Land Registry "District" values to keep. Confirm against 01_ocod.py output
 # before relying on this. Greater Manchester later: add "SALFORD", "TRAFFORD", ...
-AREAS = ["MANCHESTER", "SALFORD"]
+AREAS = ["MANCHESTER", "SALFORD", "TRAFFORD"]
 
 # FSA local authority names (see https://api.ratings.food.gov.uk/Authorities/basic)
-FSA_AUTHORITIES = ["Manchester", "Salford"]
+FSA_AUTHORITIES = ["Manchester", "Salford", "Trafford"]
 
 # Manchester City Council postcode districts, used as a sanity check only.
 MANCHESTER_POSTCODE_PREFIXES = (
