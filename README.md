@@ -6,12 +6,6 @@ Inspired by the [London Food Money Matrix](http://london-food-money-matrix.verce
 
 ---
 
-## Brief for Claude Code
-
-**Git:** commits go out under my name only. Never add `Co-Authored-By`, `Claude-Session`, or any other attribution lines to commits or pull requests.
-
----
-
 ## The core problem
 
 Land Registry records the *legal* owner of a title, which is often a shell company. Foreign money is frequently routed through UK companies (e.g. Manchester Life, the joint venture between Manchester City Council and Abu Dhabi United Group, owns through UK entities) or through offshore vehicles in Jersey, Guernsey, the BVI, and so on. The project’s value is in **walking ownership chains** up to the ultimate controller.
@@ -155,11 +149,3 @@ manchesters-money/
     └── data/properties.geojson
 ```
 
----
-
-## First task for Claude Code
-
-1. Scaffold the repo layout above, with `requirements.txt`, `.env.example`, and a `.gitignore` that excludes `data/raw/`, `data/cache/`, `data/interim/`, and `.env`.
-2. Write `pipeline/01_ocod.py`. When I’ve put the OCOD CSV in `data/raw/`, print the column names and the distinct district values containing “MANCHESTER” so we can agree the filter.
-3. Create `data/curated/seed.csv` with columns matching the output schema, and an empty `overrides.csv`.
-4. Build a minimal `site/` that loads a GeoJSON file and shows pins with a side panel, so we can see something on screen early.
