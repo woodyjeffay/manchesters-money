@@ -2,7 +2,7 @@
 
 An interactive map of foreign ownership in Manchester: which apartment blocks, offices, restaurants, and businesses are ultimately owned or controlled by overseas states, funds, companies, and individuals.
 
-Inspired by the [London Food Money Matrix](http://london-food-money-matrix.vercel.app/), but data-driven rather than purely crowdsourced: we build the map from public registers first, then curate and correct it.
+Inspired by the [London Food Money Matrix](http://london-food-money-matrix.vercel.app/).
 
 ---
 
