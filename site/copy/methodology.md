@@ -6,11 +6,17 @@
   "1. " is a numbered step. **bold**, *italic*, and [link text](https://address).
 -->
 
-## What the map shows
+## About
 
-Property in the Manchester, Salford, and Trafford council areas whose ultimate controller, as far as public records show, is outside the United Kingdom. It also shows property where the ownership chain ends in an entity whose owners are not disclosed; these are marked “unknown”.
+Manchester has grown fast, and much of the money behind that growth has come from abroad. Sovereign wealth funds, overseas investment firms, and individuals living outside the UK own apartment blocks, offices, hotels, and restaurants across the city.
 
-“Foreign” refers to the *ultimate* controller, not the company on the title. A Jersey company owned by a UK resident is not counted as foreign. A UK company owned by an overseas fund is.
+Who owns this property is often hard to see. Many holdings sit behind chains of companies, some registered in offshore jurisdictions that disclose little about their owners. Some of the money comes from states whose human rights records have been widely criticised. And owners based abroad can be harder to hold to account than those who live here.
+
+This project uses public registers to show who ultimately controls property and businesses in Greater Manchester and Salford, so that you can see for yourself.
+
+“Foreign” here refers to the *ultimate* controller, not the company on the title. A Jersey company owned by a UK resident is not counted as foreign. A UK company owned by an overseas fund is.
+
+This project was built by [Woody Jeffay](https://www.linkedin.com/in/woody-jeffay-682622135/)
 
 ## Registered owner and ultimate controller
 
