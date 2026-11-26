@@ -300,7 +300,6 @@ function openPanel(p) {
   const facts = venue ? [
     ["Business", esc(p.business_type)],
     ["Run by", esc(p.operator)],
-    ["Hygiene rating", esc(p.rating || "—")],
   ] : [
     ["Registered owner", esc(p.registered_owner || "—")],
     ...(p.title_count > 1 ? [["Titles", p.title_count]] : []),

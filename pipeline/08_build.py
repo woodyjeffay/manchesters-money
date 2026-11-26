@@ -460,7 +460,6 @@ def build_venues(postcodes):
                           "id": f"FSA-{r['fhrs_id']}", "name": r["business_name"],
                           "business_type": FSA_TYPES.get(r["business_type"], r["business_type"]),
                           "address": r.get("address"), "postcode": pc, "area": r.get("authority"),
-                          "rating": r.get("rating"), "rating_date": (r.get("rating_date") or "")[:10] or None,
                           "operator": r["company_name"], "operator_number": r["company_number"],
                           "match_confidence": r["match_confidence"],
                           "ultimate_owner": c["ultimate_owner"], "ultimate_country": c["ultimate_country"],
