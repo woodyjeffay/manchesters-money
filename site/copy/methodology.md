@@ -49,7 +49,7 @@ Some holdings are not visible in the registers, for example where property is he
 
 ## Food and drink businesses
 
-An optional layer shows restaurants, cafés, takeaways, pubs, hotels, and supermarkets from the Food Standards Agency’s hygiene register whose operating company is controlled from outside the UK. The hygiene register records a trading name, not the company that runs the business, so we search Companies House for that name. We only accept a company whose name is exactly the trading name once words like “Limited” are removed, and only if it is the one active company with that name, or its registered office is at the business’s address. The panel says which.
+An optional layer shows restaurants, cafés, takeaways, pubs, hotels, and supermarkets from the Food Standards Agency’s register of food businesses whose operating company is controlled from outside the UK. The register records a trading name, not the company that runs the business, so we search Companies House for that name. We only accept a company whose name is exactly the trading name once words like “Limited” are removed, and only if it is the one active company with that name, or its registered office is at the business’s address. The panel says which.
 
 These are businesses, not property: the operator may rent its premises from someone else. Where one company trades at several places, some branches of the brand may be run by franchisees.
 
@@ -89,7 +89,7 @@ If something is wrong or out of date, use “Suggest a correction” on the map.
 
 - HM Land Registry: Overseas companies that own property in England and Wales; UK companies that own property in England and Wales. Contains HM Land Registry data © Crown copyright and database right 2026. This data is licensed under the [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
 - Companies House: company profiles, persons with significant control, and the Register of Overseas Entities. Contains public sector information licensed under the Open Government Licence v3.0.
-- Food Standards Agency: Food Hygiene Rating Scheme data, licensed under the Open Government Licence v3.0.
+- Food Standards Agency: register of food businesses, licensed under the Open Government Licence v3.0.
 - postcodes.io: contains OS data © Crown copyright and database right 2026; Royal Mail data © Royal Mail copyright and database right 2026; ONS data licensed under the Open Government Licence v3.0.
 - Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors; tiles by [OpenFreeMap](https://openfreemap.org) and [OpenMapTiles](https://www.openmaptiles.org/); built with [Leaflet](https://leafletjs.com) and [MapLibre](https://maplibre.org).
 

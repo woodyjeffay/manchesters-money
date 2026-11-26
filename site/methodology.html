@@ -6,7 +6,7 @@
   <title>Methodology · Manchester’s Money</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&family=IBM+Plex+Serif:wght@500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=20">
+  <link rel="stylesheet" href="style.css?v=21">
 </head>
 <body class="page">
   <header>
@@ -25,49 +25,7 @@
     </div>
   </section>
   <!-- The text of this page lives in copy/methodology.md, so it can be edited on GitHub. -->
-  <script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
-  <script>
-    fetch("copy/methodology.md", { cache: "no-cache" }).then((r) => {
-      if (!r.ok) throw new Error(r.status);
-      return r.text();
-    }).then((md) => {
-      const el = document.getElementById("method");
-      el.innerHTML = marked.parse(md.replace(/<!--[\s\S]*?-->/g, ""));
-      el.removeAttribute("aria-busy");
-      // External links open in a new tab; in-page anchors still work.
-      el.querySelectorAll('a[href^="http"]').forEach((a) => { a.target = "_blank"; a.rel = "noopener"; });
-      if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
-    }).catch(() => {
-      document.getElementById("method").innerHTML =
-        '<p>This page could not be loaded. Please refresh, or read it on <a href="https://github.com/woodyjeffay/manchesters-money/blob/main/site/copy/methodology.md">GitHub</a>.</p>';
-    });
-  </script>
-  <script>
-    // CSV of everything on the map (properties and food & drink businesses).
-    document.getElementById("download-csv").addEventListener("click", async (e) => {
-      const btn = e.currentTarget, status = document.getElementById("download-status");
-      btn.disabled = true; status.textContent = " Preparing…";
-      try {
-        const get = (u) => fetch(u).then((r) => r.ok ? r.json() : { features: [] });
-        const [props, venues] = await Promise.all([get("data/properties.geojson"), get("data/venues.geojson")]);
-        const cols = ["id", "kind", "name", "address", "postcode", "area", "registered_owner", "ultimate_owner",
-          "ultimate_country", "owner_type", "property_type", "title_count", "title_numbers", "evidence", "sources"];
-        const cell = (v) => { const s = Array.isArray(v) ? v.join(" | ") : String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-        const rows = props.features.concat(venues.features).map((f) => f.properties).map((p) => p.business_type
-          ? { ...p, kind: "business", registered_owner: p.operator, property_type: p.business_type, evidence: "name match" }
-          : { ...p, kind: "property", title_count: p.title_count || 1 });
-        const note = "Contains HM Land Registry data (c) Crown copyright and database right 2026, Companies House data and Food Standards Agency data, all licensed under the Open Government Licence v3.0.";
-        const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(",")), "", cell(note)].join("\n");
-        const a = Object.assign(document.createElement("a"), {
-          href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: "manchesters-money.csv" });
-        a.click();
-        URL.revokeObjectURL(a.href);
-        status.textContent = ` ${rows.length.toLocaleString("en-GB")} rows.`;
-      } catch {
-        status.textContent = " Sorry, the download failed. Please try again.";
-      }
-      btn.disabled = false;
-    });
-  </script>
+  <script src="https://unpkg.com/marked@12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
+  <script src="methodology.js?v=1"></script>
 </body>
 </html>

@@ -35,7 +35,10 @@ function setTagline() {
 }
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const gbp = (n) => n ? "£" + Number(n).toLocaleString("en-GB") : null;
+const gbp = (n) => Number(n) ? "£" + Number(n).toLocaleString("en-GB") : null;
+const num = (n) => Number(n) || 0;
+// Only http(s) links are ever rendered from the data; anything else (javascript:, data:) is dropped.
+const safeUrl = (u) => { try { const x = new URL(u); return /^https?:$/.test(x.protocol) ? x.href : ""; } catch { return ""; } };
 
 // --- Kinds of place: each has its own marker shape --------------------------
 const KINDS = {
@@ -46,7 +49,7 @@ const KINDS = {
   venue:       { label: "Food and drink firms", shape: "star" },
   minor:       { label: "Parking, ground rents", shape: "ring" },
 };
-const kindOf = (p) => p.business_type ? "venue"
+const kindOf = (p) => p._k ||= p.business_type ? "venue"
   : (p.parking_only || p.property_type === "parking" || p.property_type === "ground_rent") ? "minor"
   : p.property_type === "residential" ? "homes"
   : p.property_type === "hospitality" ? "hospitality"
@@ -129,14 +132,20 @@ const state = { area: "", country: "", type: "", kind: "", owner: "", q: "" };
 const ownerKey = (p) => p.anonymised ? p.registered_owner || p.operator || p.name : p.ultimate_owner || p.registered_owner || p.name;
 let features = [];   // property titles (grouped by building)
 let venues = [];     // food & drink businesses
-const all = () => features.concat(venues);
+let everything = []; // both, rebuilt when either loads
+const all = () => everything;
+const setData = () => { everything = features.concat(venues); render(); };
 
 fetch("data/venues.geojson").then((r) => r.ok ? r.json() : { features: [] }).then((gj) => {
-  venues = gj.features; render();
+  venues = Array.isArray(gj.features) ? gj.features : [];
+  setData();
 }).catch(() => {});
 
-fetch("data/properties.geojson").then((r) => r.json()).then((gj) => {
-  features = gj.features;
+fetch("data/properties.geojson").then((r) => {
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}).then((gj) => {
+  features = Array.isArray(gj.features) ? gj.features : [];
   const m = gj.meta || {};
   const month = (ym) => ym ? new Date(ym + "-01").toLocaleDateString("en-GB", { month: "long", year: "numeric" }) : null;
   document.getElementById("updated").textContent = gj.generated
@@ -147,10 +156,12 @@ fetch("data/properties.geojson").then((r) => r.json()).then((gj) => {
   document.getElementById("f-area").hidden = areas.length < 2;
   areaNames = areas;
   copyReady.then(setTagline);
-  render();
+  setData();
   // Open on the city centre, where the holdings are densest; the list and clusters show the rest.
   map.invalidateSize();
   map.setView([53.4795, -2.2425], 14);
+}).catch(() => {
+  document.getElementById("shown").textContent = "The map data could not be loaded. Please refresh.";
 });
 
 function unique(fn) {
@@ -168,7 +179,10 @@ for (const [k, id] of Object.entries(filters)) {
 let qTimer;
 document.getElementById("q").addEventListener("input", (e) => {
   clearTimeout(qTimer);
-  qTimer = setTimeout(() => { state.q = e.target.value.trim().toLowerCase(); render(); }, 150);
+  qTimer = setTimeout(() => {
+    const q = e.target.value.trim().toLowerCase().slice(0, 100);
+    if (q !== state.q) { state.q = q; render(); }
+  }, 150);
 });
 document.getElementById("reset").addEventListener("click", () => {
   Object.assign(state, { area: "", country: "", type: "", kind: "", owner: "", q: "" });
@@ -193,33 +207,44 @@ function matches(p, skip) {
 }
 
 let shown = [];
+// Each feature's marker is built once and reused across filter changes.
+const markerFor = (f) => f._marker ||= (() => {
+  const p = f.properties, k = kindOf(p);
+  const [lon, lat] = f.geometry.coordinates;
+  const size = num(p.title_count) >= 20 ? 22 : num(p.title_count) >= 5 ? 18 : 15;
+  return L.marker([lat, lon], {
+    icon: L.divIcon({ className: "mk", html: shapeSVG(KINDS[k].shape, COLORS[p.owner_type] || COLORS.unknown, size),
+      iconSize: [size, size] }),
+    riseOnHover: true,
+  }).bindTooltip(`<b>${esc(p.name)}</b><br>${esc(KINDS[k].label)} · ${esc(p.ultimate_owner || p.registered_owner || "")}`)
+    .on("click", () => openPanel(p));
+})();
+const hasPoint = (f) => Array.isArray(f.geometry?.coordinates) && f.geometry.coordinates.every(Number.isFinite);
+
 function render() {
   layer.clearLayers();
-  shown = all().filter((f) => matches(f.properties));
-  const markers = shown.map((f) => {
-    const p = f.properties, k = kindOf(p);
-    const [lon, lat] = f.geometry.coordinates;
-    const size = (p.title_count || 1) >= 20 ? 22 : (p.title_count || 1) >= 5 ? 18 : 15;
-    return L.marker([lat, lon], {
-      icon: L.divIcon({ className: "mk", html: shapeSVG(KINDS[k].shape, COLORS[p.owner_type] || COLORS.unknown, size),
-        iconSize: [size, size] }),
-      riseOnHover: true,
-    }).bindTooltip(`<b>${esc(p.name)}</b><br>${esc(KINDS[k].label)} · ${esc(p.ultimate_owner || p.registered_owner || "")}`)
-      .on("click", () => openPanel(p));
-  });
-  layer.addLayers(markers);
+  // One pass: what is shown, plus the counts for each filter (each ignoring its own setting).
+  shown = [];
+  const byKind = {}, byType = {}, byCountry = {};
+  for (const f of all()) {
+    if (!hasPoint(f)) continue;
+    const p = f.properties;
+    if (matches(p)) shown.push(f);
+    if (matches(p, "kind")) { const k = kindOf(p); byKind[k] = (byKind[k] || 0) + 1; }
+    if (matches(p, "type")) byType[p.owner_type] = (byType[p.owner_type] || 0) + 1;
+    if (p.ultimate_country && matches(p, "country")) byCountry[p.ultimate_country] = (byCountry[p.ultimate_country] || 0) + 1;
+  }
+  layer.addLayers(shown.map(markerFor));
   const chip = document.getElementById("owner-chip");
   chip.hidden = !state.owner;
   chip.innerHTML = state.owner ? `Owner: ${esc(state.owner)} <button type="button" aria-label="Clear owner filter">×</button>` : "";
   if (state.owner) chip.querySelector("button").onclick = () => setOwner("");
-  renderCards();
-  renderCounters();
+  renderCards(byKind);
+  renderCounters(byType, byCountry);
   renderList();
 }
 
-function renderCards() {
-  const n = {};
-  for (const f of all()) if (matches(f.properties, "kind")) { const k = kindOf(f.properties); n[k] = (n[k] || 0) + 1; }
+function renderCards(n) {
   const kinds = Object.keys(KINDS).filter((k) => n[k] || (k === "venue" && venues.length));
   document.getElementById("kind-cards").innerHTML = kinds.map((k) => `
     <button type="button" class="card ${state.kind && state.kind !== k ? "dim" : ""}" data-kind="${k}" aria-pressed="${state.kind === k}">
@@ -229,14 +254,8 @@ function renderCards() {
   document.querySelectorAll("[data-kind]").forEach((b) => b.onclick = () => { state.kind = state.kind === b.dataset.kind ? "" : b.dataset.kind; render(); });
 }
 
-function renderCounters() {
-  // Counts reflect the other active filters, so they stay useful as filters.
-  const byType = {}, byCountry = {};
-  for (const f of all()) {
-    const p = f.properties;
-    if (matches(p, "type")) byType[p.owner_type] = (byType[p.owner_type] || 0) + 1;
-    if (matches(p, "country") && p.ultimate_country) byCountry[p.ultimate_country] = (byCountry[p.ultimate_country] || 0) + 1;
-  }
+// Counts reflect the other active filters, so they stay useful as filters.
+function renderCounters(byType, byCountry) {
   document.getElementById("type-counters").innerHTML = Object.keys(TYPE_LABELS).filter((t) => byType[t]).map((t) =>
     `<button class="counter" data-type="${t}" aria-pressed="${state.type === t}"><span class="dot" style="background:${COLORS[t]}"></span>${TYPE_LABELS[t]} <b>${byType[t].toLocaleString()}</b></button>`).join("");
   document.querySelectorAll("[data-type]").forEach((b) => b.onclick = () => { state.type = state.type === b.dataset.type ? "" : b.dataset.type; render(); });
@@ -253,14 +272,14 @@ function renderList() {
   const bounds = map.getBounds();
   const inView = shown.filter((f) => bounds.contains([f.geometry.coordinates[1], f.geometry.coordinates[0]]));
   document.getElementById("shown").textContent = `${inView.length.toLocaleString()} places in view`;
-  const top = inView.sort((a, b) => (b.properties.title_count || 1) - (a.properties.title_count || 1)).slice(0, 60);
+  const top = inView.sort((a, b) => (num(b.properties.title_count) || 1) - (num(a.properties.title_count) || 1)).slice(0, 60);
   const list = document.getElementById("place-list");
   list.innerHTML = top.map((f, i) => {
     const p = f.properties, k = kindOf(p);
     return `<li data-i="${i}">${shapeSVG(KINDS[k].shape, COLORS[p.owner_type] || COLORS.unknown, 12)}
       <div><div class="nm">${esc(p.name)}</div>
       <div class="sub">${esc(p.ultimate_owner || p.registered_owner || "Owner not established")} · ${esc(countryName(p.ultimate_country))}</div></div>
-      <span class="n">${(p.title_count || 1) > 1 ? `${p.title_count} titles` : ""}</span></li>`;
+      <span class="n">${num(p.title_count) > 1 ? `${num(p.title_count)} titles` : ""}</span></li>`;
   }).join("") + (inView.length > top.length ? `<li class="more">+ ${(inView.length - top.length).toLocaleString()} more. Zoom in or search.</li>` : "");
   list.querySelectorAll("li[data-i]").forEach((li) => li.onclick = () => {
     const f = top[+li.dataset.i];
@@ -279,7 +298,7 @@ const FLAG_TEXT = {
   max_hops: "The chain was cut off after eight companies.",
   curated_controller: "We added the last link from the published source shown, because the register alone does not name the controller.",
   venue_office_match: "Operator matched by name and registered address.",
-  venue_name_match: "Operator matched by name only. The hygiene register doesn't say who runs a business.",
+  venue_name_match: "Operator matched by name only. The food register doesn't say who runs a business.",
   venue_brand: "Branches of this brand may be run by franchisees.",
   inferred_ground_rent: "Probably a ground rent. Residents usually own the homes on long leases.",
 };
@@ -291,7 +310,7 @@ const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-GB", { day: "numer
 
 function openPanel(p) {
   const k = kindOf(p), venue = k === "venue";
-  const link = (s) => s ? ` <a href="${esc(s)}" target="_blank" rel="noopener">↗</a>` : "";
+  const link = (s) => safeUrl(s) ? ` <a href="${esc(safeUrl(s))}" target="_blank" rel="noopener noreferrer">↗</a>` : "";
   const chain = (p.chain || []).map((s) => `
     <li><div>${esc(s.name || s.company_number || "Unnamed")}${link(s.source)}</div>
       <div class="j">${esc([s.jurisdiction && (s.jurisdiction.length === 2 ? countryName(s.jurisdiction) : s.jurisdiction),
@@ -302,9 +321,9 @@ function openPanel(p) {
     ["Run by", esc(p.operator)],
   ] : [
     ["Registered owner", esc(p.registered_owner || "—")],
-    ...(p.title_count > 1 ? [["Titles", p.title_count]] : []),
+    ...(num(p.title_count) > 1 ? [["Titles", num(p.title_count)]] : []),
     ["Tenure", esc(p.tenure || "—")],
-    ["Price paid", p.title_count > 1 && p.price_paid ? `${gbp(p.price_paid)} <span class="j">(${p.price_paid_known} of ${p.title_count})</span>` : gbp(p.price_paid) || "—"],
+    ["Price paid", num(p.title_count) > 1 && gbp(p.price_paid) ? `${gbp(p.price_paid)} <span class="j">(${num(p.price_paid_known)} of ${num(p.title_count)})</span>` : gbp(p.price_paid) || "—"],
   ];
   document.getElementById("panel-body").innerHTML = `
     <div class="kind">${shapeSVG(KINDS[k].shape, COLORS[p.owner_type] || COLORS.unknown, 12)}${esc(KINDS[k].label)}</div>
@@ -313,17 +332,17 @@ function openPanel(p) {
     <div class="owner">
       <div class="j">Controlled by</div>
       <div class="who">${esc(p.ultimate_owner || "Not known")}</div>
-      <div class="j"><span class="badge" style="background:${COLORS[p.owner_type]}">${TYPE_LABELS[p.owner_type] || p.owner_type}</span>
+      <div class="j"><span class="badge" style="background:${COLORS[p.owner_type] || COLORS.unknown}">${esc(TYPE_LABELS[p.owner_type] || p.owner_type)}</span>
         ${p.ultimate_country ? esc(countryName(p.ultimate_country)) : ""}</div>
     </div>
     <dl>${facts.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("")}</dl>
     ${flagNote(p.flags)}
     ${p.geocode_precision && p.geocode_precision !== "postcode" ? `<p class="j">Pin is approximate: the register gives no postcode.</p>` : ""}
     <details open><summary>How we know</summary><ol class="chain">${chain || "<li>No chain recorded</li>"}</ol></details>
-    ${p.titles ? `<details><summary>All ${p.titles.length} titles</summary><ul class="titles">${p.titles.map((t) =>
+    ${Array.isArray(p.titles) ? `<details><summary>All ${p.titles.length} titles</summary><ul class="titles">${p.titles.map((t) =>
       `<li><b>${esc(t.title)}</b> ${esc(t.address)}${t.price_paid ? ` · ${gbp(t.price_paid)}` : ""}</li>`).join("")}</ul></details>` : ""}
     ${p.notes ? `<p class="note">${esc(p.notes)}</p>` : ""}
-    <details><summary>Sources</summary><ol class="sources">${(p.sources || []).map((s) => `<li><a href="${esc(s)}" target="_blank" rel="noopener">${esc(s.replace(/^https?:\/\/(www\.)?/, ""))}</a></li>`).join("")}</ol></details>
+    <details><summary>Sources</summary><ol class="sources">${(p.sources || []).map(safeUrl).filter(Boolean).map((s) => `<li><a href="${esc(s)}" target="_blank" rel="noopener noreferrer">${esc(s.replace(/^https?:\/\/(www\.)?/, ""))}</a></li>`).join("")}</ol></details>
     <div class="panel-actions">
       ${p.anonymised ? "" : `<button type="button" id="owner-this">Everything they own</button>`}
       <button type="button" id="suggest-this">Suggest a correction</button>
@@ -366,6 +385,7 @@ function openCorrection(p) {
   statusEl.textContent = "";
   form.property_id.value = p ? p.id : "";
   form.property_name.value = p ? p.name : "";
+  form.opened_at.value = Date.now();
   const label = document.getElementById("c-property");
   label.hidden = !p;
   if (p) label.textContent = `About: ${p.name} (${p.id})`;
@@ -415,10 +435,8 @@ document.getElementById("top-owners").addEventListener("click", () => {
     const p = f.properties;
     if (!matches(p, "owner") || p.anonymised) continue;
     const k = ownerKey(p);
-    const o = owners[k] ||= { name: k, country: p.ultimate_country, type: p.owner_type, titles: 0, locations: 0,
-                               registeredOnly: !p.ultimate_owner };
-    o.titles += p.business_type ? 0 : p.title_count || 1;
-    o.locations += 1;
+    const o = owners[k] ||= { name: k, country: p.ultimate_country, type: p.owner_type, titles: 0 };
+    o.titles += p.business_type ? 0 : num(p.title_count) || 1;
   }
   const rows = Object.values(owners).sort((a, b) => b.titles - a.titles).slice(0, 100);
   document.getElementById("panel-body").innerHTML = `
@@ -426,8 +444,8 @@ document.getElementById("top-owners").addEventListener("click", () => {
     <p class="addr">${inline(copy("top-owners-note", "By number of titles, within your filters. Private individuals below our naming threshold are not listed."))}</p>
     <table class="owners"><thead><tr><th>Owner</th><th>Country</th><th class="n">Titles</th></tr></thead><tbody>
     ${rows.map((o) => `<tr><td><button type="button" class="link-button" data-owner="${esc(o.name)}">${esc(o.name)}</button>
-      <div class="j"><span class="dot" style="background:${COLORS[o.type]}"></span> ${TYPE_LABELS[o.type] || o.type}</div></td>
-      <td>${esc(countryName(o.country))}</td><td class="n">${o.titles}</td></tr>`).join("")}
+      <div class="j"><span class="dot" style="background:${COLORS[o.type] || COLORS.unknown}"></span> ${esc(TYPE_LABELS[o.type] || o.type)}</div></td>
+      <td>${esc(countryName(o.country))}</td><td class="n">${num(o.titles)}</td></tr>`).join("")}
     </tbody></table>`;
   document.querySelectorAll("[data-owner]").forEach((b) => b.onclick = () => setOwner(b.dataset.owner));
   showPanel();

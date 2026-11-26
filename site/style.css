@@ -210,7 +210,6 @@ dialog#correction.closing { animation: pop-out .15s ease-in forwards; }
 @media (max-width: 760px) {
   #panel { animation-name: sheet-in; animation-duration: .25s; }
   #panel.closing { animation-name: sheet-out; animation-duration: .2s; }
-  .leaflet-bottom { bottom: 132px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after, ::backdrop { animation: none !important; transition: none !important; }
