@@ -85,7 +85,7 @@ def is_foreign(c):
     if not c:
         return False
     chain = json.loads(c["chain"] or "[]")
-    left_uk = any(to_iso(s.get("jurisdiction") or s.get("country_of_residence") or s.get("nationality"))
+    left_uk = any(to_iso(s.get("jurisdiction") or s.get("country_of_residence"))
                   not in (None, "UK") for s in chain)
     return left_uk and c.get("ultimate_country") != "UK"
 
@@ -268,6 +268,82 @@ def hold_for_review(feats):
     return [f for f in feats if f["ultimate_owner"] not in held or f["owner_type"] != "individual"]
 
 
+# --- Small owners -----------------------------------------------------------------
+# Individuals are named only above a threshold. Below it they appear as
+# "Private individual" with their country of residence; the registered company
+# (a fact from the Land Registry) is still shown. See methodology.html.
+NAME_MIN_TITLES = 5            # titles held in the areas covered
+NAME_MIN_PRICE = 5_000_000     # total price paid, where the register records it
+NAME_MIN_VENUES = 5            # food and drink businesses run
+WHOLE_BUILDING_TYPES = ("hospitality", "other")
+
+
+def approved_names():
+    """Owners named regardless of size: public figures and others approved by hand
+    in data/curated/approved_owners.csv."""
+    df = read(CURATED / "approved_owners.csv")
+    return set(df["ultimate_owner"]) if df is not None and len(df) else set()
+
+
+def is_whole_building(f):
+    """A hotel, pub, office or shop title that is not a flat, unit or parking space."""
+    return (f["property_type"] in WHOLE_BUILDING_TYPES
+            and not UNIT_PREFIX.match(f.get("address") or "")
+            and not re.search(r"\bflat\b|apartment|\bunit\b|\bsuite\b", f.get("address") or "", re.I))
+
+
+def is_named_by_source(f):
+    """Curated entries and curated controllers rest on a published source naming the owner."""
+    return f.get("evidence") == "curated" or "curated_controller" in (f.get("flags") or [])
+
+
+def named_individuals(feats, approved):
+    """Which individual owners clear the threshold, judged on all their titles."""
+    stats = {}
+    for f in feats:
+        if f["owner_type"] != "individual" or not f.get("ultimate_owner"):
+            continue
+        s = stats.setdefault(f["ultimate_owner"], {"titles": 0, "price": 0, "whole": False, "sourced": False})
+        s["titles"] += len(f["title_numbers"])
+        s["price"] += f.get("price_paid") or 0
+        s["whole"] |= is_whole_building(f)
+        s["sourced"] |= is_named_by_source(f)
+    return {o for o, s in stats.items()
+            if o in approved or s["sourced"] or s["whole"]
+            or s["titles"] >= NAME_MIN_TITLES or s["price"] >= NAME_MIN_PRICE}
+
+
+def anonymise(p):
+    """Replace a below-threshold individual's name everywhere it appears in a feature."""
+    several = ";" in (p.get("ultimate_owner") or "")
+    label = "Private individuals" if several else "Private individual"
+    p["ultimate_owner"] = label
+    p["anonymised"] = True
+    chain = []
+    for s in p.get("chain") or []:
+        if s.get("type") in ("individual", "individuals"):
+            s = {"name": label, "type": s["type"], "country_of_residence": s.get("country_of_residence"),
+                 "note": "Named in the register. Not shown here because this owner holds little property in the area."}
+        chain.append(s)
+    p["chain"] = chain
+    p["sources"] = sorted({s["source"] for s in chain if s.get("source")} |
+                          {s for s in p.get("sources") or [] if "use-land-property-data" in s or "ratings.food.gov.uk" in s})
+    return p
+
+
+def protect_small_owners(feats, counter=None):
+    """feats: property dicts (before grouping). Anonymises individuals below the threshold."""
+    keep = named_individuals(feats, approved_names())
+    n, owners = 0, set()
+    for f in feats:
+        if f["owner_type"] == "individual" and f.get("ultimate_owner") and f["ultimate_owner"] not in keep:
+            owners.add(f["ultimate_owner"])
+            anonymise(f)
+            n += 1
+    print(f"  {len(owners):,} individuals below the naming threshold shown as 'Private individual' ({n:,} titles)")
+    return feats
+
+
 def apply_overrides(feats):
     ov = read(CURATED / "overrides.csv")
     if ov is None or ov.empty:
@@ -305,6 +381,7 @@ def main():
         f["_lat"], f["_lon"] = float(lat), float(lon)
         candidates.append(f)
 
+    candidates = protect_small_owners(candidates)
     grouped = group_by_building(candidates)
     kept = []
     for f in grouped:
@@ -390,6 +467,17 @@ def build_venues(postcodes):
                           "owner_type": c["owner_type"], "chain": chain, "flags": flags,
                           "sources": [r["source"]] + sorted({s["source"] for s in chain if s.get("source")}),
                       }})
+    approved = approved_names()
+    venue_counts = {}
+    for f in feats:
+        p = f["properties"]
+        if p["owner_type"] == "individual":
+            venue_counts[p["ultimate_owner"]] = venue_counts.get(p["ultimate_owner"], 0) + 1
+    for f in feats:
+        p = f["properties"]
+        if (p["owner_type"] == "individual" and p["ultimate_owner"] not in approved
+                and not is_named_by_source(p) and venue_counts.get(p["ultimate_owner"], 0) < NAME_MIN_VENUES):
+            anonymise(p)
     dest = SITE_DATA / "venues.geojson"
     dest.write_text(json.dumps({"type": "FeatureCollection", "generated": TODAY, "features": feats}, indent=1))
     print(f"  {len(feats):,} food & drink businesses with a non-UK controller -> {dest}")

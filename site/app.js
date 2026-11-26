@@ -98,7 +98,8 @@ map.on("zoomend", zoomClass); zoomClass();
 
 // --- State and data ---------------------------------------------------------------
 const state = { area: "", country: "", type: "", kind: "", owner: "", q: "" };
-const ownerKey = (p) => p.ultimate_owner || p.registered_owner || p.name;
+// Anonymised small owners are not grouped together: each is keyed by its registered company.
+const ownerKey = (p) => p.anonymised ? p.registered_owner || p.operator || p.name : p.ultimate_owner || p.registered_owner || p.name;
 let features = [];   // property titles (grouped by building)
 let venues = [];     // food & drink businesses
 const all = () => features.concat(venues);
@@ -298,12 +299,13 @@ function openPanel(p) {
     ${p.notes ? `<p class="note">${esc(p.notes)}</p>` : ""}
     <details><summary>Sources</summary><ol class="sources">${(p.sources || []).map((s) => `<li><a href="${esc(s)}" target="_blank" rel="noopener">${esc(s.replace(/^https?:\/\/(www\.)?/, ""))}</a></li>`).join("")}</ol></details>
     <div class="panel-actions">
-      <button type="button" id="owner-this">Everything they own</button>
+      ${p.anonymised ? "" : `<button type="button" id="owner-this">Everything they own</button>`}
       <button type="button" id="suggest-this">Suggest a correction</button>
     </div>
     <p class="j">Checked ${esc(fmtDate(p.last_checked))}${p.evidence === "inferred" ? " · controller is our reading of the register" : ""}</p>`;
   document.getElementById("suggest-this").onclick = () => openCorrection(p);
-  document.getElementById("owner-this").onclick = () => setOwner(ownerKey(p));
+  const ownerBtn = document.getElementById("owner-this");
+  if (ownerBtn) ownerBtn.onclick = () => setOwner(ownerKey(p));
   const panel = document.getElementById("panel");
   panel.hidden = false;
   panel.scrollTop = 0;
@@ -355,7 +357,7 @@ document.getElementById("top-owners").addEventListener("click", () => {
   const owners = {};
   for (const f of all()) {
     const p = f.properties;
-    if (!matches(p, "owner")) continue;
+    if (!matches(p, "owner") || p.anonymised) continue;
     const k = ownerKey(p);
     const o = owners[k] ||= { name: k, country: p.ultimate_country, type: p.owner_type, titles: 0, locations: 0,
                                registeredOnly: !p.ultimate_owner };
@@ -365,7 +367,7 @@ document.getElementById("top-owners").addEventListener("click", () => {
   const rows = Object.values(owners).sort((a, b) => b.titles - a.titles).slice(0, 100);
   document.getElementById("panel-body").innerHTML = `
     <h2>Top owners</h2>
-    <p class="addr">By number of titles, within your filters.</p>
+    <p class="addr">By number of titles, within your filters. Private individuals below our naming threshold are not listed.</p>
     <table class="owners"><thead><tr><th>Owner</th><th>Country</th><th class="n">Titles</th></tr></thead><tbody>
     ${rows.map((o) => `<tr><td><button type="button" class="link-button" data-owner="${esc(o.name)}">${esc(o.name)}</button>
       <div class="j"><span class="dot" style="background:${COLORS[o.type]}"></span> ${TYPE_LABELS[o.type] || o.type}</div></td>

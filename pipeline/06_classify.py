@@ -42,7 +42,9 @@ OWNERSHIP = re.compile(r"ownership-of-shares|voting-rights|right-to-appoint|righ
 
 
 def person_country(p):
-    return country(p.get("country_of_residence")) or country(p.get("nationality"))
+    # Where someone lives, never their nationality: the map is about control from
+    # outside the UK, not about who is foreign. No stated residence -> not established.
+    return country(p.get("country_of_residence"))
 
 
 def classify_people(chain, end):
@@ -69,7 +71,7 @@ def classify_people(chain, end):
     # Joint owners: conservative. Any UK-based owner means we don't call it foreign.
     if "UK" in countries or (None in countries and len(set(countries)) == 1):
         return end.get("name"), "UK" if "UK" in countries else None, "individual", "PSC individual(s), UK involved"
-    c = countries[0]
+    c = next((x for x in countries if x), None)
     names = end.get("name") or ""
     if RULER.search(names):
         return names, c, "state", "ruling-family member"
