@@ -10,7 +10,7 @@
 
 Manchester has grown fast, and much of the money behind that growth has come from abroad. Sovereign wealth funds, overseas investment firms, and individuals living outside the UK own apartment blocks, offices, hotels, and restaurants across the city.
 
-Who owns this property is often hard to see. Many holdings sit behind chains of companies, some registered in offshore jurisdictions that disclose little about their owners. Some of the money comes from states whose human rights records have been widely criticised. And owners based abroad can be harder to hold to account than those who live here.
+Who owns this property is often hard to see. Many holdings sit behind chains of companies, some registered in offshore jurisdictions that disclose little about their owners. Some of the money comes from states with poor human rights records. And owners based abroad can be harder to hold to account than those who live here.
 
 This project uses public registers to show who ultimately controls property and businesses in Greater Manchester and Salford, so that you can see for yourself.
 

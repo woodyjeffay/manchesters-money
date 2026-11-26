@@ -433,22 +433,6 @@ document.getElementById("top-owners").addEventListener("click", () => {
   showPanel();
 });
 
-// --- CSV download of what is on screen ---------------------------------------
-document.getElementById("download").addEventListener("click", () => {
-  const cols = ["id", "kind", "name", "address", "postcode", "area", "registered_owner", "ultimate_owner",
-    "ultimate_country", "owner_type", "property_type", "title_count", "title_numbers", "evidence", "sources"];
-  const cell = (v) => { const s = Array.isArray(v) ? v.join(" | ") : String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const rows = shown.map((f) => f.properties).map((p) => p.business_type
-    ? { ...p, kind: "business", registered_owner: p.operator, property_type: p.business_type, evidence: "name match" }
-    : { ...p, kind: "property", title_count: p.title_count || 1 });
-  const note = "Contains HM Land Registry data (c) Crown copyright and database right 2026, Companies House data and Food Standards Agency data, all licensed under the Open Government Licence v3.0.";
-  const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(",")), "", cell(note)].join("\n");
-  const a = Object.assign(document.createElement("a"), {
-    href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: "manchesters-money.csv" });
-  a.click();
-  URL.revokeObjectURL(a.href);
-});
-
 // --- Phone layout: the sidebar is a bottom sheet -----------------------------
 const sheetBtn = document.getElementById("sheet");
 function setSheet(open) {
