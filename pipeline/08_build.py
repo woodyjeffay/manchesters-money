@@ -323,11 +323,11 @@ def anonymise(p):
     for s in p.get("chain") or []:
         if s.get("type") in ("individual", "individuals"):
             s = {"name": label, "type": s["type"], "country_of_residence": s.get("country_of_residence"),
-                 "note": "Named in the register. Not shown here because this owner holds little property in the area."}
+                 "source": s.get("source"),
+                 "note": "Not named here because this owner holds little property in the area. "
+                         "The Companies House record is linked."}
         chain.append(s)
     p["chain"] = chain
-    p["sources"] = sorted({s["source"] for s in chain if s.get("source")} |
-                          {s for s in p.get("sources") or [] if "use-land-property-data" in s or "ratings.food.gov.uk" in s})
     return p
 
 

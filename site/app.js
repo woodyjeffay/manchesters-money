@@ -9,6 +9,31 @@ const countryName = (c) => {
   if (!c) return "Not established";
   try { return COUNTRY_NAMES.of(c) || c; } catch { return c; }
 };
+// --- Editable text: copy/map.md (sections headed "## name") -------------------
+const COPY = {};
+const copyReady = fetch("copy/map.md", { cache: "no-cache" }).then((r) => r.ok ? r.text() : "").then((md) => {
+  md = md.replace(/<!--[\s\S]*?-->/g, "");
+  for (const part of md.split(/^## +/m).slice(1)) {
+    const nl = part.indexOf("\n");
+    COPY[part.slice(0, nl).trim()] = part.slice(nl + 1).trim();
+  }
+  document.querySelectorAll("[data-copy]").forEach((el) => {
+    if (COPY[el.dataset.copy]) el.innerHTML = inline(COPY[el.dataset.copy]);
+  });
+  setTagline();
+}).catch(() => {});
+const inline = (text) => window.marked ? marked.parseInline(text) : esc(text);
+const copy = (key, fallback) => COPY[key] || fallback;
+let areaNames = [];
+function listJoin(xs) {
+  return xs.length < 3 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")}, and ${xs.at(-1)}`;
+}
+function setTagline() {
+  const t = COPY.tagline;
+  if (!t || !t.includes("{areas}")) return;
+  document.getElementById("tagline").innerHTML = inline(t.replace("{areas}", listJoin(areaNames.length ? areaNames : ["Manchester"])));
+}
+
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const gbp = (n) => n ? "£" + Number(n).toLocaleString("en-GB") : null;
 
@@ -50,7 +75,7 @@ function star(cx, cy, r1, r2) {
 
 // --- Map ------------------------------------------------------------------------
 const map = L.map("map", {
-  zoomControl: true, maxZoom: 19, minZoom: 9,
+  zoomControl: true, attributionControl: false, maxZoom: 19, minZoom: 9,
   maxBounds: [[53.20, -2.90], [53.75, -1.70]], maxBoundsViscosity: 0.8,
 }).setView([53.4795, -2.2425], 14);
 // If the page loads in a hidden tab the map measures 0x0; re-measure when it becomes visible.
@@ -78,11 +103,13 @@ fetch("https://tiles.openfreemap.org/styles/positron").then((r) => r.json()).the
       p["text-halo-color"] = "#f6efe4";
     }
   }
-  L.maplibreGL({
-    style,
-    attribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
-  }).addTo(map);
+  L.maplibreGL({ style }).addTo(map);
 });
+
+// Full map credits are in the sidebar footer; OpenStreetMap asks for a short credit on the map itself.
+L.control.attribution({ prefix: false, position: "bottomright" })
+  .addAttribution('© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a>')
+  .addTo(map);
 
 // Individual markers when zoomed in (so shapes are readable); neutral clusters when zoomed out.
 const layer = L.markerClusterGroup({
@@ -118,8 +145,8 @@ fetch("data/properties.geojson").then((r) => r.json()).then((gj) => {
   const areas = unique((p) => p.area || "").filter(Boolean);
   fillSelect("f-area", areas, (a) => a);
   document.getElementById("f-area").hidden = areas.length < 2;
-  if (areas.length > 1) document.getElementById("tagline").textContent =
-    `Property in ${areas.slice(0, -1).join(", ")} and ${areas.at(-1)} controlled from outside the UK.`;
+  areaNames = areas;
+  copyReady.then(setTagline);
   render();
   // Open on the city centre, where the holdings are densest; the list and clusters show the rest.
   map.invalidateSize();
@@ -149,7 +176,7 @@ document.getElementById("reset").addEventListener("click", () => {
   document.getElementById("q").value = "";
   render();
 });
-function setOwner(o) { state.owner = o; render(); if (o) document.getElementById("panel").hidden = true; }
+function setOwner(o) { state.owner = o; render(); if (o) hidePanel(); }
 
 const haystack = (p) => (p._hay ||= [p.name, p.address, p.postcode, p.registered_owner, p.ultimate_owner, p.operator,
   countryName(p.ultimate_country)].filter(Boolean).join(" ").toLowerCase());
@@ -306,11 +333,29 @@ function openPanel(p) {
   document.getElementById("suggest-this").onclick = () => openCorrection(p);
   const ownerBtn = document.getElementById("owner-this");
   if (ownerBtn) ownerBtn.onclick = () => setOwner(ownerKey(p));
-  const panel = document.getElementById("panel");
-  panel.hidden = false;
-  panel.scrollTop = 0;
+  showPanel();
 }
-document.getElementById("close").addEventListener("click", () => { document.getElementById("panel").hidden = true; });
+
+// --- Detail panel: slides in and out ----------------------------------------
+const panelEl = document.getElementById("panel");
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+function showPanel() {
+  panelEl.classList.remove("closing");
+  const wasHidden = panelEl.hidden;
+  panelEl.hidden = false;
+  panelEl.scrollTop = 0;
+  if (wasHidden) document.getElementById("close").focus({ preventScroll: true });
+}
+function hidePanel() {
+  if (panelEl.hidden || panelEl.classList.contains("closing")) return;
+  if (reduceMotion.matches) { panelEl.hidden = true; return; }
+  panelEl.classList.add("closing");
+  panelEl.addEventListener("animationend", () => {
+    if (panelEl.classList.contains("closing")) { panelEl.classList.remove("closing"); panelEl.hidden = true; }
+  }, { once: true });
+}
+document.getElementById("close").addEventListener("click", hidePanel);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !dlg.open) hidePanel(); });
 
 // --- Corrections -----------------------------------------------------------
 const dlg = document.getElementById("correction");
@@ -329,7 +374,19 @@ function openCorrection(p) {
   dlg.showModal();
 }
 document.getElementById("suggest-general").addEventListener("click", (e) => { e.preventDefault(); openCorrection(null); });
-document.getElementById("c-cancel").addEventListener("click", () => dlg.close());
+// Fade the dialog out before closing it.
+function closeDialog() {
+  if (!dlg.open) return;
+  if (reduceMotion.matches) return dlg.close();
+  dlg.classList.add("closing");
+  dlg.addEventListener("animationend", () => { dlg.classList.remove("closing"); dlg.close(); }, { once: true });
+}
+document.getElementById("c-cancel").addEventListener("click", closeDialog);
+dlg.addEventListener("cancel", (e) => { e.preventDefault(); closeDialog(); });
+dlg.addEventListener("click", (e) => {  // a click outside the dialog box lands on its backdrop
+  const r = dlg.getBoundingClientRect();
+  if (e.target === dlg && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) closeDialog();
+});
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -344,8 +401,8 @@ form.addEventListener("submit", async (e) => {
     });
     const out = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(out.error || `Error ${res.status}`);
-    statusEl.textContent = "Thank you. Your suggestion has been received and will be reviewed.";
-    setTimeout(() => dlg.close(), 2500);
+    statusEl.textContent = copy("correction-thanks", "Thank you. Your suggestion has been received and will be reviewed.");
+    setTimeout(closeDialog, 2500);
   } catch (err) {
     statusEl.textContent = `Sorry, that didn't send (${err.message}). Please try again.`;
     submit.disabled = false;
@@ -367,14 +424,14 @@ document.getElementById("top-owners").addEventListener("click", () => {
   const rows = Object.values(owners).sort((a, b) => b.titles - a.titles).slice(0, 100);
   document.getElementById("panel-body").innerHTML = `
     <h2>Top owners</h2>
-    <p class="addr">By number of titles, within your filters. Private individuals below our naming threshold are not listed.</p>
+    <p class="addr">${inline(copy("top-owners-note", "By number of titles, within your filters. Private individuals below our naming threshold are not listed."))}</p>
     <table class="owners"><thead><tr><th>Owner</th><th>Country</th><th class="n">Titles</th></tr></thead><tbody>
     ${rows.map((o) => `<tr><td><button type="button" class="link-button" data-owner="${esc(o.name)}">${esc(o.name)}</button>
       <div class="j"><span class="dot" style="background:${COLORS[o.type]}"></span> ${TYPE_LABELS[o.type] || o.type}</div></td>
       <td>${esc(countryName(o.country))}</td><td class="n">${o.titles}</td></tr>`).join("")}
     </tbody></table>`;
   document.querySelectorAll("[data-owner]").forEach((b) => b.onclick = () => setOwner(b.dataset.owner));
-  document.getElementById("panel").hidden = false;
+  showPanel();
 });
 
 // --- CSV download of what is on screen ---------------------------------------
@@ -403,6 +460,5 @@ function setSheet(open) {
 sheetBtn.addEventListener("click", () => setSheet(!document.getElementById("sidebar").classList.contains("open")));
 document.getElementById("q").addEventListener("focus", () => { if (matchMedia("(max-width: 760px)").matches) setSheet(true); });
 // While a detail panel is open, it takes the bottom of the screen on phones.
-const panelEl = document.getElementById("panel");
 new MutationObserver(() => document.body.classList.toggle("panel-open", !panelEl.hidden))
   .observe(panelEl, { attributes: true, attributeFilter: ["hidden"] });

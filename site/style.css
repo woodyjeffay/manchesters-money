@@ -123,7 +123,7 @@ table.owners { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.owners th { text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--line); padding: 4px 2px; }
 table.owners td { border-bottom: 1px solid var(--line); padding: 7px 2px; vertical-align: top; }
 table.owners .n { text-align: right; font-variant-numeric: tabular-nums; }
-table.owners 
+
 /* --- Corrections dialog ------------------------------------------------- */
 dialog#correction { border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px; width: min(480px, 92vw); background: var(--panel); color: var(--ink); }
 dialog#correction::backdrop { background: rgba(42, 37, 32, 0.35); }
@@ -168,3 +168,30 @@ body.page header p { margin: 2px 0 0; color: var(--muted); }
   body.panel-open #sidebar { display: none; }
 }
 table.owners .link-button { background: none; border: 0; padding: 0; color: var(--institutional); text-decoration: underline; cursor: pointer; font: inherit; font-size: 13px; text-align: left; }
+
+/* --- Map credit: one short line; full credits are in the sidebar footer --- */
+.leaflet-control-attribution { font-size: 10px; line-height: 1.4; padding: 0 5px; background: rgba(251, 246, 238, .75) !important; color: var(--muted); }
+.leaflet-control-attribution a { color: var(--muted); }
+
+/* --- Transitions ---------------------------------------------------------- */
+@keyframes panel-in { from { opacity: 0; transform: translateX(18px); } }
+@keyframes panel-out { to { opacity: 0; transform: translateX(18px); } }
+@keyframes sheet-in { from { transform: translateY(100%); } }
+@keyframes sheet-out { to { transform: translateY(100%); } }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+@keyframes pop-out { to { opacity: 0; transform: translateY(8px) scale(.98); } }
+#panel { animation: panel-in .22s ease-out; }
+#panel.closing { animation: panel-out .16s ease-in forwards; }
+dialog#correction[open] { animation: pop-in .2s ease-out; }
+dialog#correction[open]::backdrop { animation: fade-in .2s ease-out; }
+dialog#correction.closing { animation: pop-out .15s ease-in forwards; }
+.card, .counter, .actions button, .panel-actions button, .places li { transition: border-color .15s, background-color .15s, opacity .15s, box-shadow .15s; }
+@media (max-width: 760px) {
+  #panel { animation-name: sheet-in; animation-duration: .25s; }
+  #panel.closing { animation-name: sheet-out; animation-duration: .2s; }
+  .leaflet-bottom { bottom: 132px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after, ::backdrop { animation: none !important; transition: none !important; }
+}

@@ -96,6 +96,17 @@ Each GeoJSON feature:
 
 ---
 
+## Editing the site’s text
+
+The wording lives in two Markdown files that can be edited on GitHub (open the file, click the pencil icon, then “Commit changes”):
+
+- `site/copy/methodology.md`: the whole “About the data” page.
+- `site/copy/map.md`: the tagline, footer credits, and short messages on the map page.
+
+Changes appear after the next deploy.
+
+---
+
 ## Frontend (`site/`)
 
 - Static site, deployable to Vercel. Plain HTML/JS or a light Vite setup; no framework unless needed.

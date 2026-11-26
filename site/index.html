@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&family=IBM+Plex+Serif:wght@500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=17">
+  <link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
   <aside id="sidebar">
@@ -43,8 +43,8 @@
     <footer>
       <p><a href="methodology.html">About the data</a> · <a href="#" id="suggest-general">Suggest a correction</a></p>
       <p id="updated"></p>
-      <p>Contains HM Land Registry data © Crown copyright and database right 2026, Companies House and Food Standards Agency data, all under the
-      <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">Open Government Licence v3.0</a>. Postcodes: postcodes.io, OS data © Crown copyright. Map © OpenStreetMap contributors, OpenFreeMap.</p>
+      <p data-copy="credits">Contains HM Land Registry data © Crown copyright and database right 2026, and Companies House and Food Standards Agency data, all under the
+      <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/">Open Government Licence v3.0</a>. Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors; tiles by <a href="https://openfreemap.org">OpenFreeMap</a>.</p>
     </footer>
   </aside>
 
@@ -59,7 +59,7 @@
   <dialog id="correction">
     <form id="correction-form" method="dialog">
       <h2>Suggest a correction</h2>
-      <p class="j">We check every suggestion by hand. A source helps.</p>
+      <p class="j" data-copy="correction-intro">We check every suggestion by hand. A source helps.</p>
       <p id="c-property" class="note" hidden></p>
       <input type="hidden" name="property_id">
       <input type="hidden" name="property_name">
@@ -83,6 +83,7 @@
   <script src="https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-  <script src="app.js?v=18"></script>
+  <script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>
